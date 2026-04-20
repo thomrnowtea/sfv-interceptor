@@ -6,8 +6,14 @@ let _currentTab = 'all';
 async function sendMsg(msg) { return chrome.runtime.sendMessage(msg); }
 async function loadRules() { const r = await sendMsg({ type:'GET_RULES' }); return r.rules||[]; }
 
-function typeLabel(t) { return {rest:'REST',graphql:'GraphQL',html:'HTML/JS/CSS'}[t]||'REST'; }
-function typeCls(t)   { return {rest:'type-rest',graphql:'type-graphql',html:'type-html'}[t]||'type-rest'; }
+function typeLabel(t, sub) {
+  if (t === 'html') return { js: 'JS', css: 'CSS', html: 'HTML' }[sub] || 'RES';
+  return { rest: 'API', graphql: 'GQL' }[t] || 'API';
+}
+function typeCls(t, sub) {
+  if (t === 'html') return { js: 'type-js', css: 'type-css', html: 'type-htm-sub' }[sub] || 'type-html';
+  return { rest: 'type-rest', graphql: 'type-graphql' }[t] || 'type-rest';
+}
 function esc(s) {
   return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -22,8 +28,8 @@ function renderRules() {
 
   const q = (document.getElementById('popup-search')?.value || '').toLowerCase();
   const filtered = (_currentTab === 'active'
-    ? _allRules.filter(r => r.enabled !== false)
-    : _allRules).filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.urlPattern||'').toLowerCase().includes(q));
+    ? _sortedRules().filter(r => r.enabled !== false)
+    : _sortedRules()).filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.urlPattern||'').toLowerCase().includes(q));
 
   if (!filtered.length) {
     const m = _currentTab === 'active' && _allRules.length
@@ -38,7 +44,7 @@ function renderRules() {
 
   list.innerHTML = filtered.map(r => `
     <div class="rule-item ${r.enabled !== false ? '' : 'disabled'}">
-      <span class="rule-type-badge ${typeCls(r.resourceType)}">${typeLabel(r.resourceType)}</span>
+      <span class="rule-type-badge ${typeCls(r.resourceType, r.resourceSubtype)}">${typeLabel(r.resourceType, r.resourceSubtype)}</span>
       <div class="rule-info">
         <div class="rule-name">${esc(r.name||'Untitled')}</div>
         <div class="rule-url">${(() => {
@@ -160,11 +166,40 @@ function fromRequestlyRule(rq) {
   };
 }
 
-document.getElementById('popup-search')?.addEventListener('input', () => renderRules());
+// ── Sort (mirrors dashboard sort stored in chrome.storage.local) ──────────────
+let _sortKey = 'none', _sortDir = 'asc';
+const _typeOrder = { rest: 0, graphql: 1, html: 2 };
+const _subOrder  = { html: 0, css: 1, js: 2 };
+
+chrome.storage.local.get(['sfvi_sort_key', 'sfvi_sort_dir'], d => {
+  _sortKey = d.sfvi_sort_key || 'none';
+  _sortDir = d.sfvi_sort_dir || 'asc';
+  renderRules();
+});
+
+function _sortedRules() {
+  if (_sortKey === 'none') return [..._allRules];
+  return [..._allRules].sort((a, b) => {
+    let va, vb;
+    if (_sortKey === 'name') {
+      va = (a.name||'').toLowerCase();
+      vb = (b.name||'').toLowerCase();
+    } else {
+      const ta = (_typeOrder[a.resourceType]??99) * 10 + (_subOrder[a.resourceSubtype]??9);
+      const tb = (_typeOrder[b.resourceType]??99) * 10 + (_subOrder[b.resourceSubtype]??9);
+      va = ta; vb = tb;
+    }
+    if (va < vb) return _sortDir === 'asc' ? -1 :  1;
+    if (va > vb) return _sortDir === 'asc' ?  1 : -1;
+    return 0;
+  });
+}
 
 // Auto-refresh when rules change from any context (dashboard, another popup)
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === 'RULES_CHANGED') refresh();
 });
+
+document.getElementById('popup-search')?.addEventListener('input', () => renderRules());
 
 refresh();

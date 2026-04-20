@@ -187,10 +187,33 @@ function destroyEditors() {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 let allRules    = [];
+let sortKey     = 'none';   // 'none' | 'name' | 'type'
+let sortDir     = 'asc';    // 'asc' | 'desc'
 let currentId   = null;
 let selectMode  = false;
 let selectedIds = new Set();
 let ghostRule   = null; // live preview while creating a new rule
+
+const _subOrder = { html: 0, css: 1, js: 2 };
+
+function sortedRules() {
+  if (sortKey === 'none') return [...allRules];
+  const typeOrder = { rest: 0, graphql: 1, html: 2 };
+  return [...allRules].sort((a, b) => {
+    let va, vb;
+    if (sortKey === 'name') {
+      va = (a.name || '').toLowerCase();
+      vb = (b.name || '').toLowerCase();
+    } else {
+      // type sort: primary = resourceType, secondary = resourceSubtype
+      va = (typeOrder[a.resourceType] ?? 99) * 10 + (_subOrder[a.resourceSubtype] ?? 9);
+      vb = (typeOrder[b.resourceType] ?? 99) * 10 + (_subOrder[b.resourceSubtype] ?? 9);
+    }
+    if (va < vb) return sortDir === 'asc' ? -1 :  1;
+    if (va > vb) return sortDir === 'asc' ?  1 : -1;
+    return 0;
+  });
+}
 async function msg(d) { return chrome.runtime.sendMessage(d); }
 function esc(s) {
   return String(s ?? '')
@@ -269,17 +292,33 @@ function fromRQ(rq) {
 
 // ── Sidebar nav ───────────────────────────────────────────────────────────────
 
-function typeClass(t) {
+function navRuleClass(t, sub) {
+  if (t === 'html') return { js: 'nr-js', css: 'nr-css', html: 'nr-html' }[sub] || 'nr-html';
+  return { rest: 'nr-rest', graphql: 'nr-graphql' }[t] || 'nr-rest';
+}
+
+function hrClass(t, sub) {
+  if (t === 'html') return { js: 'hr-js', css: 'hr-css', html: 'hr-html' }[sub] || 'hr-html';
+  return { rest: 'hr-rest', graphql: 'hr-graphql' }[t] || 'hr-rest';
+}
+
+function typeClass(t, sub) {
+  if (t === 'html') {
+    return { js: 't-js', css: 't-css', html: 't-htm-sub' }[sub] || 't-html';
+  }
   return { rest: 't-rest', graphql: 't-graphql', html: 't-html' }[t] || 't-rest';
 }
-function typeLabel(t) {
-  return { rest: 'REST', graphql: 'GQL', html: 'HTML' }[t] || 'REST';
+function typeLabel(t, sub) {
+  if (t === 'html') {
+    return { js: 'JS', css: 'CSS', html: 'HTML' }[sub] || 'RES';
+  }
+  return { rest: 'API', graphql: 'GQL' }[t] || 'API';
 }
 
 function renderNav(filter = '') {
   const nav = document.getElementById('rules-nav');
   const q = filter.toLowerCase();
-  const list = allRules.filter(r => {
+  const list = sortedRules().filter(r => {
     if (!q) return true;
     if ((r.name || '').toLowerCase().includes(q)) return true;
     return (r.pairs || []).some(p => (p.urlPattern || '').toLowerCase().includes(q));
@@ -288,7 +327,7 @@ function renderNav(filter = '') {
   // Build ghost entry HTML if creating a new rule
   const ghostHTML = ghostRule ? `
     <div class="nav-rule ghost active">
-      <span class="nav-rule-type ${typeClass(ghostRule.resourceType || 'rest')}">${typeLabel(ghostRule.resourceType || 'rest')}</span>
+      <span class="nav-rule-type ${typeClass(ghostRule.resourceType || 'rest', ghostRule.resourceSubtype)}">${typeLabel(ghostRule.resourceType || 'rest', ghostRule.resourceSubtype)}</span>
       <div class="nav-rule-info">
         <div class="nav-rule-name">${esc(ghostRule.name || 'Untitled Rule')}</div>
         <div class="nav-rule-url">${esc(ghostRule.urlPattern || '—')}</div>
@@ -300,11 +339,11 @@ function renderNav(filter = '') {
     return;
   }
   nav.innerHTML = list.map(r => `
-    <div class="nav-rule ${r.id === currentId && !selectMode ? 'active' : ''} ${r.enabled !== false ? '' : 'disabled'} ${selectMode && selectedIds.has(r.id) ? 'nav-selected' : ''}" data-id="${esc(r.id)}">
+    <div class="nav-rule ${navRuleClass(r.resourceType, r.resourceSubtype)} ${r.id === currentId && !selectMode ? 'active' : ''} ${r.enabled !== false ? '' : 'disabled'} ${selectMode && selectedIds.has(r.id) ? 'nav-selected' : ''}" data-id="${esc(r.id)}">
       ${selectMode
         ? `<input type="checkbox" class="nav-checkbox" data-id="${esc(r.id)}" ${selectedIds.has(r.id) ? 'checked' : ''}
              style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0;cursor:pointer;">`
-        : `<span class="nav-rule-type ${typeClass(r.resourceType)}">${typeLabel(r.resourceType)}</span>`
+        : `<span class="nav-rule-type ${typeClass(r.resourceType, r.resourceSubtype)}">${typeLabel(r.resourceType, r.resourceSubtype)}</span>`
       }
       <div class="nav-rule-info">
         <div class="nav-rule-name">${esc(r.name || 'Untitled')}</div>
@@ -368,10 +407,11 @@ function renderNav(filter = '') {
 // ── Pair row builder ──────────────────────────────────────────────────────────
 function buildPairRow(pair, idx) {
   const op = pair.urlOperator || 'Contains';
+  const cs = pair.caseSensitive || false;
   return `
     <div class="pair-row" data-pair-idx="${idx}" style="
       display:grid;
-      grid-template-columns: 120px 1fr 100px 28px;
+      grid-template-columns: 120px 1fr auto 100px 28px;
       gap:6px; align-items:center;
       margin-bottom:5px;
     ">
@@ -385,6 +425,12 @@ function buildPairRow(pair, idx) {
              value="${esc(pair.urlPattern || '')}"
              placeholder="e.g. *api/endpoint*  or  *.bundle.js*"
              autocomplete="off" spellcheck="false">
+      <button type="button" class="pair-cs" data-idx="${idx}" title="${cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)'}"
+        style="height:30px;padding:0 8px;border-radius:5px;border:1px solid ${cs ? 'var(--accent)' : 'var(--border2)'};
+               background:${cs ? 'var(--accent-dim)' : 'var(--surface2)'};color:${cs ? 'var(--accent)' : 'var(--muted)'};
+               font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:inherit;">
+        Aa
+      </button>
       <select class="pair-method" data-idx="${idx}">
         <option value=""       ${!pair.method             ? 'selected' : ''}>Any</option>
         <option value="GET"    ${pair.method === 'GET'    ? 'selected' : ''}>GET</option>
@@ -409,6 +455,7 @@ function buildPairRow(pair, idx) {
 
 function buildEditorHTML(rule) {
   const resType  = rule.resourceType || 'rest';
+  const resSub   = rule.resourceSubtype || 'html';
   const respType = rule.pairs?.[0]?.responseType || rule.responseType || 'static';
   const isNew    = !rule.id;
 
@@ -424,7 +471,7 @@ function buildEditorHTML(rule) {
   const dynamicBody = (pair0.responseBody && respType === 'dynamic') ? pair0.responseBody : defDynamic;
 
   return `
-<div class="main-header ${rule.enabled !== false ? 'is-active' : 'is-inactive'}" id="editor-header">
+<div class="main-header ${rule.enabled !== false ? 'is-active' : 'is-inactive'} ${hrClass(rule.resourceType || 'rest', rule.resourceSubtype)}" id="editor-header">
   <div class="main-title-wrap">
     <div class="main-title-row">
       <input type="text" class="main-title-input" id="f-name"
@@ -472,14 +519,40 @@ function buildEditorHTML(rule) {
       <div class="field">
         <label>Resource Type</label>
         <div class="type-selector" id="type-selector">
-          <button type="button" class="type-btn ${resType === 'rest' ? 'active' : ''}" data-type="rest">
-            <span class="dot" style="background:var(--accent)"></span> REST API
+          <button type="button" class="type-btn ${resType === 'rest' ? 'active' : ''}" data-type="rest"
+            style="--btn-color:var(--green);--btn-bg:var(--green-dim)">
+            <span class="dot" style="background:var(--green)"></span> API
           </button>
-          <button type="button" class="type-btn ${resType === 'graphql' ? 'active t-gql' : ''}" data-type="graphql">
-            <span class="dot" style="background:var(--purple)"></span> GraphQL
+          <button type="button" class="type-btn ${resType === 'graphql' ? 'active t-gql' : ''}" data-type="graphql"
+            style="--btn-color:#fb7185;--btn-bg:rgba(251,113,133,0.12)">
+            <span class="dot" style="background:#fb7185"></span> GraphQL
           </button>
-          <button type="button" class="type-btn ${resType === 'html' ? 'active t-htm' : ''}" data-type="html">
-            <span class="dot" style="background:var(--green)"></span> HTML/JS/CSS
+          <button type="button" class="type-btn ${resType === 'html' ? 'active t-htm' : ''}" data-type="html"
+            style="--btn-color:var(--accent);--btn-bg:var(--accent-dim)">
+            <span class="dot" style="background:var(--accent)"></span> Resource
+          </button>
+        </div>
+        <div id="subtype-selector" style="display:${resType === 'html' ? 'flex' : 'none'};gap:6px;margin-top:8px;">
+          <button type="button" class="subtype-btn ${resSub === 'html' ? 'active' : ''}" data-sub="html"
+            style="--btn-color:var(--accent);--btn-bg:rgba(91,115,255,0.15);padding:4px 12px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;
+                   background:${resSub === 'html' ? 'rgba(91,115,255,0.15)'   : 'var(--surface2)'};
+                   color:${resSub === 'html'      ? 'var(--accent)'           : 'var(--muted)'};
+                   border:1px solid ${resSub === 'html' ? 'rgba(91,115,255,0.35)' : 'var(--border2)'};">
+            HTML
+          </button>
+          <button type="button" class="subtype-btn ${resSub === 'css' ? 'active' : ''}" data-sub="css"
+            style="--btn-color:#a78bfa;--btn-bg:rgba(167,139,250,0.15);padding:4px 12px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;
+                   background:${resSub === 'css' ? 'rgba(167,139,250,0.15)'  : 'var(--surface2)'};
+                   color:${resSub === 'css'      ? '#a78bfa'                 : 'var(--muted)'};
+                   border:1px solid ${resSub === 'css' ? 'rgba(167,139,250,0.35)' : 'var(--border2)'};">
+            CSS
+          </button>
+          <button type="button" class="subtype-btn ${resSub === 'js' ? 'active' : ''}" data-sub="js"
+            style="--btn-color:#fbbf24;--btn-bg:rgba(251,191,36,0.15);padding:4px 12px;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s;
+                   background:${resSub === 'js' ? 'rgba(251,191,36,0.15)'   : 'var(--surface2)'};
+                   color:${resSub === 'js'      ? '#fbbf24'                 : 'var(--muted)'};
+                   border:1px solid ${resSub === 'js' ? 'rgba(251,191,36,0.35)' : 'var(--border2)'};">
+            JS
           </button>
         </div>
       </div>
@@ -593,6 +666,7 @@ function buildEditorHTML(rule) {
 
 async function bindEditorEvents(rule, isNew = false) {
   let currentResType  = rule.resourceType || 'rest';
+  let currentResSub   = rule.resourceSubtype || 'html';
   let currentRespType = rule.pairs?.[0]?.responseType || rule.responseType || 'static';
 
   // ── Dirty tracking: show Save only when changes exist ────────────────────
@@ -601,12 +675,14 @@ async function bindEditorEvents(rule, isNew = false) {
     name:     rule.name || '',
     enabled:  rule.enabled !== false,
     resType:  currentResType,
+    resSub:   currentResSub,
     respType: currentRespType,
     pairs:    JSON.stringify((rule.pairs || []).map(p => ({
-      id:          p.id || '',
-      urlPattern:  p.urlPattern || '',
-      urlOperator: p.urlOperator || 'Contains',
-      method:      p.method || '',
+      id:            p.id || '',
+      urlPattern:    p.urlPattern || '',
+      urlOperator:   p.urlOperator || 'Contains',
+      method:        p.method || '',
+      caseSensitive: p.caseSensitive || false,
     }))),
     body:        (rule.pairs?.[0]?.responseBody) || '',
     status:      String((rule.pairs?.[0]?.statusCode) || ''),
@@ -641,10 +717,11 @@ async function bindEditorEvents(rule, isNew = false) {
   function getPairsFromDOM() {
     const rows = document.querySelectorAll('.pair-row');
     return Array.from(rows).map((row, idx) => ({
-      id:          pairData[idx]?.id || '',
-      urlPattern:  row.querySelector('.pair-url')?.value.trim() || '',
-      urlOperator: row.querySelector('.pair-operator')?.value || 'Contains',
-      method:      row.querySelector('.pair-method')?.value || '',
+      id:            pairData[idx]?.id || '',
+      urlPattern:    row.querySelector('.pair-url')?.value.trim() || '',
+      urlOperator:   row.querySelector('.pair-operator')?.value || 'Contains',
+      method:        row.querySelector('.pair-method')?.value || '',
+      caseSensitive: row.querySelector('.pair-cs')?.dataset.cs === 'true',
     }));
   }
   function checkDirty() {
@@ -661,6 +738,7 @@ async function bindEditorEvents(rule, isNew = false) {
       curName    !== snapshots.name    ||
       curEnabled !== snapshots.enabled ||
       currentResType  !== snapshots.resType  ||
+      currentResSub   !== snapshots.resSub   ||
       currentRespType !== snapshots.respType ||
       curPairs   !== snapshots.pairs   ||
       curBody    !== snapshots.body    ||
@@ -673,6 +751,20 @@ async function bindEditorEvents(rule, isNew = false) {
   function wirePairDirty() {
     document.querySelectorAll('.pair-url').forEach(el => el.addEventListener('input', checkDirty));
     document.querySelectorAll('.pair-operator, .pair-method').forEach(el => el.addEventListener('change', checkDirty));
+    document.querySelectorAll('.pair-cs').forEach(btn => {
+      // Init dataset from pairData
+      const idx = parseInt(btn.dataset.idx);
+      btn.dataset.cs = String(pairData[idx]?.caseSensitive || false);
+      btn.addEventListener('click', () => {
+        const cs = btn.dataset.cs !== 'true';
+        btn.dataset.cs = String(cs);
+        btn.style.borderColor  = cs ? 'var(--accent)'    : 'var(--border2)';
+        btn.style.background   = cs ? 'var(--accent-dim)': 'var(--surface2)';
+        btn.style.color        = cs ? 'var(--accent)'    : 'var(--muted)';
+        btn.title = cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)';
+        checkDirty();
+      });
+    });
   }
   setTimeout(() => {
     document.getElementById('f-name')?.addEventListener('input', checkDirty);
@@ -698,12 +790,12 @@ async function bindEditorEvents(rule, isNew = false) {
         const idx = parseInt(btn.dataset.idx);
         pairData.splice(idx, 1);
         refreshPairsDOM();
-        checkDirty();
       });
       btn.addEventListener('mouseenter', () => btn.style.color = 'var(--danger)');
       btn.addEventListener('mouseleave', () => btn.style.color = 'var(--muted)');
     });
     wirePairDirty();
+    checkDirty();
   }
 
   document.getElementById('btn-add-pair')?.addEventListener('click', () => {
@@ -737,7 +829,15 @@ async function bindEditorEvents(rule, isNew = false) {
       if (t === 'graphql') btn.classList.add('t-gql');
       if (t === 'html')    btn.classList.add('t-htm');
       currentResType = t;
-      document.getElementById('graphql-fields').style.display = t === 'graphql' ? '' : 'none';
+      document.getElementById('graphql-fields').style.display   = t === 'graphql' ? '' : 'none';
+      document.getElementById('subtype-selector').style.display = t === 'html'    ? 'flex' : 'none';
+
+      // Update header type color
+      const hdr = document.getElementById('editor-header');
+      if (hdr) {
+        hdr.classList.remove('hr-rest','hr-graphql','hr-js','hr-css','hr-html');
+        hdr.classList.add(hrClass(t, currentResSub));
+      }
 
       // Update dynamic code hint
       const hint = document.getElementById('code-hint-dyn');
@@ -745,6 +845,39 @@ async function bindEditorEvents(rule, isNew = false) {
         hint.innerHTML = t === 'html'
           ? `<b>args.response</b> = full file source text · <b>args.url</b> = file URL. Return the modified string.`
           : `<b>args.response</b> (string) · <b>args.responseJSON</b> (object) · <b>args.url</b> · <b>args.method</b> · <b>args.requestData</b>`;
+      }
+      checkDirty();
+      updateGhost();
+    });
+  });
+
+  // Subtype buttons (JS / CSS / HTML under Resource)
+  const subtypeColors = {
+    html: { bg: 'rgba(91,115,255,0.15)',  color: 'var(--accent)', border: 'rgba(91,115,255,0.35)'  },
+    css:  { bg: 'rgba(167,139,250,0.15)', color: '#a78bfa',       border: 'rgba(167,139,250,0.35)' },
+    js:   { bg: 'rgba(251,191,36,0.15)',  color: '#fbbf24',       border: 'rgba(251,191,36,0.35)'  },
+  };
+  document.querySelectorAll('.subtype-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sub = btn.dataset.sub;
+      currentResSub = sub;
+      document.querySelectorAll('.subtype-btn').forEach(b => {
+        const c = subtypeColors[b.dataset.sub];
+        b.style.background   = 'var(--surface2)';
+        b.style.color        = 'var(--muted)';
+        b.style.borderColor  = 'var(--border2)';
+        b.classList.remove('active');
+      });
+      const c = subtypeColors[sub];
+      btn.style.background  = c.bg;
+      btn.style.color       = c.color;
+      btn.style.borderColor = c.border;
+      btn.classList.add('active');
+      // Update header type color
+      const hdr = document.getElementById('editor-header');
+      if (hdr) {
+        hdr.classList.remove('hr-rest','hr-graphql','hr-js','hr-css','hr-html');
+        hdr.classList.add(hrClass(currentResType, sub));
       }
       checkDirty();
       updateGhost();
@@ -802,13 +935,15 @@ async function bindEditorEvents(rule, isNew = false) {
       const urlPattern = row.querySelector('.pair-url')?.value.trim() || '';
       const urlOperator = row.querySelector('.pair-operator')?.value || 'Contains';
       const method = row.querySelector('.pair-method')?.value || '';
+      const caseSensitive = row.querySelector('.pair-cs')?.dataset.cs === 'true';
       if (!urlPattern && pairRows.length > 1) return; // skip empty rows (keep if only one)
       const existingPair = (rule.pairs || [])[idx] || {};
       pairs.push({
-        id:           existingPair.id || ('pair_' + Date.now() + '_' + idx),
+        id:            existingPair.id || ('pair_' + Date.now() + '_' + idx),
         urlPattern,
         urlOperator,
         method,
+        caseSensitive,
         responseType: currentRespType,
         responseBody: getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static'),
         statusCode:   document.getElementById('f-status').value,
@@ -825,12 +960,13 @@ async function bindEditorEvents(rule, isNew = false) {
       id:           rule.id || null,
       name,
       enabled:      document.getElementById('f-enabled').checked,
-      resourceType: currentResType,
+      resourceType:    currentResType,
+      resourceSubtype: currentResType === 'html' ? currentResSub : undefined,
       description:  document.getElementById('f-description')?.value.trim() || '',
       pairs,
     };
-    const res = await msg({ type: 'SAVE_RULE', rule: updated });
-    if (res.ok) {
+    const res = await msg({ type: 'SAVE_RULE', rule: updated }).catch(() => null);
+    if (res?.ok) {
       showToast('✓ Rule saved');
       ghostRule = null;
       currentId = res.rule.id;
@@ -890,9 +1026,10 @@ function selectRule(id, scroll = true) {
 
 function updateGhost() {
   if (!ghostRule) return;
-  ghostRule.name         = document.getElementById('f-name')?.value || '';
-  ghostRule.resourceType = document.querySelector('#type-selector .type-btn.active')?.dataset.type || 'rest';
-  ghostRule.urlPattern   = document.querySelector('.pair-url')?.value || '';
+  ghostRule.name            = document.getElementById('f-name')?.value || '';
+  ghostRule.resourceType    = document.querySelector('#type-selector .type-btn.active')?.dataset.type || 'rest';
+  ghostRule.resourceSubtype = document.querySelector('.subtype-btn.active')?.dataset.sub || 'js';
+  ghostRule.urlPattern      = document.querySelector('.pair-url')?.value || '';
   renderNav(document.getElementById('search').value);
 }
 
@@ -944,6 +1081,35 @@ async function refresh() {
 document.getElementById('btn-new').addEventListener('click', newRule);
 document.getElementById('search').addEventListener('input', e => renderNav(e.target.value));
 
+// ── Sort controls ─────────────────────────────────────────────────────────────
+
+function updateSortUI() {
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sort === sortKey);
+  });
+  const dirBtn = document.getElementById('sort-dir');
+  if (dirBtn) {
+    dirBtn.textContent = sortDir === 'asc' ? 'A→Z' : 'Z→A';
+    dirBtn.classList.toggle('active', sortKey !== 'none');
+  }
+  // Persist so popup can mirror
+  chrome.storage.local.set({ sfvi_sort_key: sortKey, sfvi_sort_dir: sortDir });
+}
+
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    sortKey = btn.dataset.sort;
+    updateSortUI();
+    renderNav(document.getElementById('search').value);
+  });
+});
+
+document.getElementById('sort-dir')?.addEventListener('click', () => {
+  sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  updateSortUI();
+  renderNav(document.getElementById('search').value);
+});
+
 // ── Select mode ───────────────────────────────────────────────────────────────
 function updateSelectButtons() {
   const count     = selectedIds.size;
@@ -993,7 +1159,7 @@ document.getElementById('select-all-rules').addEventListener('click', () => {
 
 document.getElementById('export-selected').addEventListener('click', () => {
   if (!selectedIds.size) { showToast('No rules selected', true); return; }
-  const toExport = allRules.filter(r => selectedIds.has(r.id));
+  const toExport = sortedRules().filter(r => selectedIds.has(r.id));
   const blob = new Blob([JSON.stringify(toExport, null, 2)], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
@@ -1063,7 +1229,14 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
 
 (async () => {
   initCodeMirror();
+  // Load persisted sort prefs before first render
+  await new Promise(res => chrome.storage.local.get(['sfvi_sort_key','sfvi_sort_dir'], d => {
+    if (d.sfvi_sort_key) sortKey = d.sfvi_sort_key;
+    if (d.sfvi_sort_dir) sortDir = d.sfvi_sort_dir;
+    res();
+  }));
   await refresh();
+  updateSortUI();
   const params = new URLSearchParams(location.search);
   const editId = params.get('edit');
   const action = params.get('action');
@@ -1078,19 +1251,23 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
 // ── Auto-sync: re-render when rules change from any context ──────────────────
 // This keeps the sidebar nav, editor pill, and toggle states in sync with the
 // popup and any other dashboard tabs.
-chrome.runtime.onMessage.addListener(async (msg) => {
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== 'RULES_CHANGED') return;
-
-  // Refresh rule list
-  await refresh();
-
-  // If a rule is currently open in the editor, update its switch
-  // to reflect the new enabled state (e.g. toggled from popup)
-  if (currentId) {
-    const updated = allRules.find(r => r.id === currentId);
-    if (updated) {
-      const toggle = document.getElementById('f-enabled');
-      if (toggle) toggle.checked = updated.enabled !== false;
+  (async () => {
+    await refresh();
+    if (currentId) {
+      const updated = allRules.find(r => r.id === currentId);
+      if (updated) {
+        const toggle = document.getElementById('f-enabled');
+        if (toggle) toggle.checked = updated.enabled !== false;
+        const hdr = document.getElementById('editor-header');
+        if (hdr) {
+          hdr.classList.toggle('is-active',   updated.enabled !== false);
+          hdr.classList.toggle('is-inactive', updated.enabled === false);
+        }
+      }
     }
-  }
+    sendResponse({});
+  })();
+  return true; // keep message channel open for async response
 });
