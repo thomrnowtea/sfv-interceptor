@@ -14,6 +14,10 @@ const pendingOriginal = new Map();
 // ── Storage ───────────────────────────────────────────────────────────────────
 
 function migrateRule(rule) {
+  // Add resourceSubtype default for existing html rules
+  if (rule.resourceType === 'html' && !rule.resourceSubtype) {
+    rule = { ...rule, resourceSubtype: 'html' };
+  }
   if (Array.isArray(rule.pairs) && rule.pairs.length) return rule;
   // Old format: flat fields → wrap in pairs[]
   return {
@@ -56,20 +60,22 @@ function generatePairId() {
 
 function urlMatchesPair(url, pair) {
   const pat = pair.urlPattern || '', op = pair.urlOperator || 'Contains';
+  const cs  = pair.caseSensitive || false;
   if (!pat) return false;
-  if (op === 'Equals')   return url === pat;
-  if (op === 'Contains') return url.includes(pat);
-  if (op === 'Regex')    { try { return new RegExp(pat, 'i').test(url); } catch { return false; } }
-  const re = '^' + pat.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&').replace(/\*/g, '.*') + '$';
-  try { return new RegExp(re, 'i').test(url); } catch { return false; }
+  const u = cs ? url : url.toLowerCase();
+  const p = cs ? pat : pat.toLowerCase();
+  if (op === 'Equals')   return u === p;
+  if (op === 'Contains') return u.includes(p);
+  if (op === 'Regex')    { try { return new RegExp(pat, cs ? '' : 'i').test(url); } catch { return false; } }
+  const re = '^' + p.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&').replace(/\*/g, '.*') + '$';
+  try { return new RegExp(re).test(u); } catch { return false; }
 }
 
 function pairToRegexFilter(pair) {
   const pat = pair.urlPattern || '', op = pair.urlOperator || 'Contains';
+  const cs  = pair.caseSensitive || false;
   if (!pat) return null;
   if (op === 'Regex')    return pat;
-  // For Wildcard/Equals/Contains: escape all special chars EXCEPT *
-  // then replace * with .* (not \* which would never be replaced back)
   const escapeNoStar = s => s.replace(/[-/\^$+?.()|[\]{}]/g, '\$&');
   if (op === 'Equals')   return '^' + escapeNoStar(pat) + '$';
   if (op === 'Wildcard') return escapeNoStar(pat).replace(/\*/g, '.*');
@@ -100,17 +106,24 @@ async function rebuildDNR() {
   const toAdd = [];
   for (const rule of rules) {
     if (rule.enabled === false || rule.resourceType !== 'html') continue;
+    const sub = rule.resourceSubtype || 'js';
+    // html subtype = page-inject, no DNR block needed
+    if (sub === 'html') continue;
+    const dnrTypes = sub === 'css' ? ['stylesheet'] : ['script'];
     for (const pair of (rule.pairs || [])) {
       const pat = pair.urlPattern || '';
       if (!pat) continue;
-      if (!/\.js|\*\.js|\.css|\*\.css/.test(pat)) continue; // skip page-inject
       const regexFilter = pairToRegexFilter(pair);
       if (!regexFilter) continue;
       toAdd.push({
         id:       stableId(rule.id + '|' + pair.id),
         priority: 1,
         action:   { type: 'block' },
-        condition: { regexFilter, resourceTypes: ['script','stylesheet'], isUrlFilterCaseSensitive: false },
+        condition: {
+          regexFilter,
+          resourceTypes: dnrTypes,
+          isUrlFilterCaseSensitive: pair.caseSensitive || false,
+        },
       });
     }
   }
@@ -136,25 +149,41 @@ async function getScriptUrlsForPage(pageUrl) {
     let html = '';
     try { const res = await fetch(pageUrl, { cache:'no-store' }); html = await res.text(); }
     catch(e) { pendingHtml.delete(hostname); return []; }
-    const urls = [], re = /<script[^>]+src\s*=\s*["']([^"']+)["'][^>]*/gi; let m;
-    while ((m = re.exec(html)) !== null) { try { urls.push(new URL(m[1], pageUrl).href); } catch {} }
+    const urls = [];
+    // Scripts
+    const reScript = /<script[^>]+src\s*=\s*["']([^"']+)["'][^>]*/gi; let m;
+    while ((m = reScript.exec(html)) !== null) { try { urls.push(new URL(m[1], pageUrl).href); } catch {} }
+    // Stylesheets
+    const reStyle = /<link[^>]+rel\s*=\s*["']stylesheet["'][^>]*href\s*=\s*["']([^"']+)["'][^>]*/gi;
+    while ((m = reStyle.exec(html)) !== null) { try { urls.push(new URL(m[1], pageUrl).href); } catch {} }
+    const reStyle2 = /<link[^>]+href\s*=\s*["']([^"']+)["'][^>]*rel\s*=\s*["']stylesheet["'][^>]*/gi;
+    while ((m = reStyle2.exec(html)) !== null) { try { const u = new URL(m[1], pageUrl).href; if (!urls.includes(u)) urls.push(u); } catch {} }
     htmlCache.set(hostname, urls); pendingHtml.delete(hostname); return urls;
   })();
   pendingHtml.set(hostname, promise); return promise;
 }
 
-async function getOriginalText(assetUrl) {
+async function getOriginalText(assetUrl, referer) {
   if (originalCache.has(assetUrl)) return originalCache.get(assetUrl);
   if (pendingOriginal.has(assetUrl)) return pendingOriginal.get(assetUrl);
   const promise = (async () => {
     try {
-      const r = await fetch(assetUrl, { cache:'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const headers = { 'Cache-Control': 'no-store' };
+      if (referer) headers['Referer'] = referer;
+      const r = await fetch(assetUrl, { cache:'no-store', headers });
+      const ct = r.headers.get('content-type') || '';
       const text = await r.text();
+      const first = text.trimStart()[0];
+      console.log('[SFV-I SW] fetch', assetUrl.split('/').pop().split('?')[0],
+        '→ status:', r.status, '| ct:', ct, '| size:', (text.length/1024).toFixed(0)+'KB', '| first char:', JSON.stringify(first));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (first === '<') throw new Error('got HTML instead of JS');
       originalCache.set(assetUrl, text); pendingOriginal.delete(assetUrl);
-      console.log('[SFV-I SW] Fetched', assetUrl.split('/').pop().split('?')[0], (text.length/1024).toFixed(0)+'KB');
       return text;
-    } catch(e) { pendingOriginal.delete(assetUrl); return null; }
+    } catch(e) {
+      console.warn('[SFV-I SW] getOriginalText failed for', assetUrl.split('/').pop().split('?')[0], ':', e.message);
+      pendingOriginal.delete(assetUrl); return null;
+    }
   })();
   pendingOriginal.set(assetUrl, promise); return promise;
 }
@@ -166,6 +195,10 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   const pageUrl = details.url;
   if (!pageUrl || /^(chrome|about|devtools|chrome-extension):/.test(pageUrl)) return;
 
+  // Clear asset cache on each navigation so stale/failed fetches are retried
+  originalCache.clear();
+  pendingOriginal.clear();
+
   const scriptUrlsPromise = getScriptUrlsForPage(pageUrl);
   const rules     = await getRules();
   const htmlRules = rules.filter(r => r.enabled !== false && r.resourceType === 'html');
@@ -173,10 +206,14 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
   scriptUrlsPromise.then(scriptUrls => {
     for (const rule of htmlRules) {
+      const sub = rule.resourceSubtype || 'js';
+      if (sub === 'html') continue; // page-inject, no pre-fetch needed
+      const extFilter = sub === 'css'
+        ? u => /\.css(\?|$)/i.test(u)
+        : u => /\.js(\?|$)/i.test(u);
       for (const pair of (rule.pairs || [])) {
-        if (urlMatchesPair(pageUrl, pair)) continue; // page-inject
-        for (const url of scriptUrls.filter(u => urlMatchesPair(u, pair))) {
-          getOriginalText(url);
+        for (const url of scriptUrls.filter(u => extFilter(u) && urlMatchesPair(u, pair))) {
+          getOriginalText(url, pageUrl);
         }
       }
     }
@@ -200,11 +237,19 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   // Build matches: one entry per (rule, pair, assetUrl)
   const matches = [];
   for (const rule of htmlRules) {
+    const sub = rule.resourceSubtype || 'js';
     for (const pair of (rule.pairs || [])) {
-      if (urlMatchesPair(pageUrl, pair)) {
-        matches.push({ assetUrl: pageUrl, ruleId: rule.id, pairId: pair.id, isPageInject: true });
+      if (sub === 'html') {
+        // Page-inject: fires on the page URL itself, not on asset URLs
+        if (urlMatchesPair(pageUrl, pair)) {
+          matches.push({ assetUrl: pageUrl, ruleId: rule.id, pairId: pair.id, isPageInject: true });
+        }
       } else {
-        for (const url of scriptUrls.filter(u => urlMatchesPair(u, pair))) {
+        // JS or CSS: match asset URLs filtered by extension
+        const extFilter = sub === 'css'
+          ? u => /\.css(\?|$)/i.test(u)
+          : u => /\.js(\?|$)/i.test(u);
+        for (const url of scriptUrls.filter(u => extFilter(u) && urlMatchesPair(u, pair))) {
           matches.push({ assetUrl: url, ruleId: rule.id, pairId: pair.id, isPageInject: false });
         }
       }
@@ -212,7 +257,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   }
   if (!matches.length) return;
 
-  await Promise.all(matches.filter(m => !m.isPageInject).map(m => getOriginalText(m.assetUrl)));
+  await Promise.all(matches.filter(m => !m.isPageInject).map(m => getOriginalText(m.assetUrl, pageUrl)));
 
   for (const { assetUrl, ruleId, pairId, isPageInject } of matches) {
     const rule = rules.find(r => r.id === ruleId && r.enabled !== false);
@@ -245,8 +290,63 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
       continue;
     }
 
-    const original = await getOriginalText(assetUrl);
-    if (original === null) continue;
+    const original = await getOriginalText(assetUrl, pageUrl);
+
+    // ── Fallback: SW can't fetch the asset (server requires browser cookies/headers).
+    // Inject into the page context which has full cookie jar + correct origin headers.
+    if (original === null) {
+      const modifyCode = pair.responseType === 'static' ? null : (pair.responseBody || '');
+      const staticBody = pair.responseType === 'static' ? (pair.responseBody || '') : null;
+      if (!modifyCode && staticBody === null) continue;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
+          args: [modifyCode, staticBody, assetUrl, file],
+          func: async function(modifyCode, staticBody, assetUrl, file) {
+            try {
+              // Fetch as the browser would for a script: same cookies, correct sec-fetch headers
+              const resp = await fetch(assetUrl, {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                  'Accept': '*/*',
+                  'Referer': location.href,
+                },
+                mode: 'same-origin',
+              });
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              const ct = resp.headers.get('content-type') || '';
+              const original = await resp.text();
+              if (original.trimStart()[0] === '<') throw new Error('server returned HTML — cannot fetch JS');
+              let patched = original;
+              if (staticBody !== null) {
+                patched = staticBody;
+              } else if (modifyCode) {
+                const fn = new Function(modifyCode + '\nreturn modifyResponse(arguments[0]);');
+                const res = fn({ method:'GET', url:assetUrl, response:original, responseType:ct, requestHeaders:{}, requestData:null, responseJSON:null });
+                if (res != null) patched = typeof res === 'string' ? res : JSON.stringify(res);
+              }
+              const changed = patched !== original;
+              console.log(
+                changed
+                  ? '%c[SFV-Interceptor]%c 📦 JS file modified — ' + file
+                  : '%c[SFV-Interceptor]%c ⚠ JS file unchanged — ' + file,
+                changed
+                  ? 'color:#34d399;font-weight:700;background:#052e16;padding:2px 6px;border-radius:3px'
+                  : 'color:#fbbf24;font-weight:700;background:#2d1f00;padding:2px 6px;border-radius:3px',
+                changed ? 'color:#34d399;font-weight:600' : 'color:#fbbf24;font-weight:600'
+              );
+              ;(0, eval)(patched);
+            } catch(e) {
+              console.error('[SFV-Interceptor] in-page fetch/eval error in', file, ':', e.message);
+            }
+          },
+        });
+        setIcon(tabId, true);
+      } catch(e) { console.error('[SFV-I SW] in-page executeScript failed for', file, ':', e.message); }
+      continue;
+    }
 
     const modifyCode = pair.responseType === 'static' ? null : (pair.responseBody || '');
     const staticBody = pair.responseType === 'static' ? (pair.responseBody || '') : null;
