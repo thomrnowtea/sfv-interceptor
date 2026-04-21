@@ -8,7 +8,7 @@ async function loadRules() { const r = await sendMsg({ type:'GET_RULES' }); retu
 
 function typeLabel(t, sub) {
   if (t === 'html') return { js: 'JS', css: 'CSS', html: 'HTML' }[sub] || 'RES';
-  return { rest: 'API', graphql: 'GQL' }[t] || 'API';
+  return { rest: 'REST', graphql: 'GQL' }[t] || 'REST';
 }
 function typeCls(t, sub) {
   if (t === 'html') return { js: 'type-js', css: 'type-css', html: 'type-htm-sub' }[sub] || 'type-html';
@@ -29,7 +29,12 @@ function renderRules() {
   const q = (document.getElementById('popup-search')?.value || '').toLowerCase();
   const filtered = (_currentTab === 'active'
     ? _sortedRules().filter(r => r.enabled !== false)
-    : _sortedRules()).filter(r => !q || (r.name||'').toLowerCase().includes(q) || (r.urlPattern||'').toLowerCase().includes(q));
+    : _sortedRules()).filter(r => {
+      if (!q) return true;
+      if ((r.name||'').toLowerCase().includes(q)) return true;
+      // Search across all pairs, not just pairs[0]
+      return (r.pairs||[]).some(p => (p.urlPattern||'').toLowerCase().includes(q));
+    });
 
   if (!filtered.length) {
     const m = _currentTab === 'active' && _allRules.length
