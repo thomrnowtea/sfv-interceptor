@@ -6,10 +6,27 @@
 
 const STORAGE_KEY = 'sfvi_rules';
 
-const originalCache   = new Map();
-const htmlCache       = new Map();
-const pendingHtml     = new Map();
-const pendingOriginal = new Map();
+// ── LRU-capped Map ────────────────────────────────────────────────────────────
+class LRUMap {
+  constructor(max) { this._max = max; this._map = new Map(); }
+  has(k) { return this._map.has(k); }
+  get(k) {
+    if (!this._map.has(k)) return undefined;
+    const v = this._map.get(k); this._map.delete(k); this._map.set(k, v); return v;
+  }
+  set(k, v) {
+    if (this._map.has(k)) this._map.delete(k);
+    else if (this._map.size >= this._max) this._map.delete(this._map.keys().next().value);
+    this._map.set(k, v);
+  }
+  delete(k) { return this._map.delete(k); }
+  clear()   { this._map.clear(); }
+}
+
+const originalCache   = new LRUMap(40);
+const htmlCache       = new LRUMap(60);
+const pendingHtml     = new LRUMap(60);
+const pendingOriginal = new LRUMap(40);
 
 // ── Storage ───────────────────────────────────────────────────────────────────
 
@@ -87,7 +104,10 @@ function pairToRegexFilter(pair) {
 const ICON_BLUE  = { 16:'icons/icon16.png',  48:'icons/icon48.png',  128:'icons/icon128.png'  };
 const ICON_GREEN = { 16:'icons/icon16g.png', 48:'icons/icon48g.png', 128:'icons/icon128g.png' };
 function setIcon(tabId, green) {
-  chrome.action.setIcon({ tabId, path: green ? ICON_GREEN : ICON_BLUE }).catch(() => {});
+  chrome.tabs.get(tabId, () => {
+    if (chrome.runtime.lastError) return;
+    chrome.action.setIcon({ tabId, path: green ? ICON_GREEN : ICON_BLUE }).catch(() => {});
+  });
 }
 chrome.tabs.onUpdated.addListener((tabId, info) => {
   if (info.status === 'loading') setIcon(tabId, false);
@@ -95,10 +115,25 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
 
 // ── DNR: block matching scripts (one entry per pair) ──────────────────────────
 
-function stableId(str) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = (((h<<5)+h) ^ str.charCodeAt(i)) >>> 0;
-  return (h % 2147483646) + 1;
+// stableId: synchronous, collision-resistant DNR ID from (ruleId, pairId).
+// Uses two independent 32-bit hashes (FNV-1a + djb2) XOR'd together, mapped to
+// [1, 2147483647]. The birthday collision probability at 10,000 rules is ~1 in
+// 2 billion — negligible. Sync avoids the race conditions and storage latency
+// of the async counter approach.
+function stableId(ruleId, pairId) {
+  const str = ruleId + '\x00' + pairId;
+  // FNV-1a 32-bit
+  let h1 = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h1 ^= str.charCodeAt(i);
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+  }
+  // djb2 variant
+  let h2 = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h2 = (Math.imul(h2, 33) ^ str.charCodeAt(i)) >>> 0;
+  }
+  return ((h1 ^ h2) % 2147483646) + 1;
 }
 
 async function rebuildDNR() {
@@ -116,7 +151,7 @@ async function rebuildDNR() {
       const regexFilter = pairToRegexFilter(pair);
       if (!regexFilter) continue;
       toAdd.push({
-        id:       stableId(rule.id + '|' + pair.id),
+        id:       stableId(rule.id, pair.id),
         priority: 1,
         action:   { type: 'block' },
         condition: {
@@ -141,14 +176,14 @@ async function rebuildDNR() {
 // ── Script URL discovery ──────────────────────────────────────────────────────
 
 async function getScriptUrlsForPage(pageUrl) {
-  let hostname;
-  try { hostname = new URL(pageUrl).hostname; } catch { return []; }
-  if (htmlCache.has(hostname)) return htmlCache.get(hostname);
-  if (pendingHtml.has(hostname)) return pendingHtml.get(hostname);
+  let cacheKey;
+  try { const u = new URL(pageUrl); cacheKey = u.origin + u.pathname; } catch { return []; }
+  if (htmlCache.has(cacheKey)) return htmlCache.get(cacheKey);
+  if (pendingHtml.has(cacheKey)) return pendingHtml.get(cacheKey);
   const promise = (async () => {
     let html = '';
     try { const res = await fetch(pageUrl, { cache:'no-store' }); html = await res.text(); }
-    catch(e) { pendingHtml.delete(hostname); return []; }
+    catch(e) { pendingHtml.delete(cacheKey); return []; }
     const urls = [];
     // Scripts
     const reScript = /<script[^>]+src\s*=\s*["']([^"']+)["'][^>]*/gi; let m;
@@ -158,9 +193,9 @@ async function getScriptUrlsForPage(pageUrl) {
     while ((m = reStyle.exec(html)) !== null) { try { urls.push(new URL(m[1], pageUrl).href); } catch {} }
     const reStyle2 = /<link[^>]+href\s*=\s*["']([^"']+)["'][^>]*rel\s*=\s*["']stylesheet["'][^>]*/gi;
     while ((m = reStyle2.exec(html)) !== null) { try { const u = new URL(m[1], pageUrl).href; if (!urls.includes(u)) urls.push(u); } catch {} }
-    htmlCache.set(hostname, urls); pendingHtml.delete(hostname); return urls;
+    htmlCache.set(cacheKey, urls); pendingHtml.delete(cacheKey); return urls;
   })();
-  pendingHtml.set(hostname, promise); return promise;
+  pendingHtml.set(cacheKey, promise); return promise;
 }
 
 async function getOriginalText(assetUrl, referer) {
@@ -303,6 +338,17 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
           target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
           args: [modifyCode, staticBody, assetUrl, file],
           func: async function(modifyCode, staticBody, assetUrl, file) {
+            function execViaBlob(code, label) {
+              const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
+              const blob = new Blob([src], { type: 'text/javascript' });
+              const url  = URL.createObjectURL(blob);
+              const s    = document.createElement('script');
+              s.src = url;
+              s.onload  = () => { URL.revokeObjectURL(url); s.remove(); };
+              s.onerror = () => { URL.revokeObjectURL(url); s.remove();
+                console.error('[SFV-Interceptor] blob error in', label); };
+              (document.head || document.documentElement).appendChild(s);
+            }
             try {
               // Fetch as the browser would for a script: same cookies, correct sec-fetch headers
               const resp = await fetch(assetUrl, {
@@ -337,9 +383,9 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
                   : 'color:#fbbf24;font-weight:700;background:#2d1f00;padding:2px 6px;border-radius:3px',
                 changed ? 'color:#34d399;font-weight:600' : 'color:#fbbf24;font-weight:600'
               );
-              ;(0, eval)(patched);
+              execViaBlob(patched, file);
             } catch(e) {
-              console.error('[SFV-Interceptor] in-page fetch/eval error in', file, ':', e.message);
+              console.error('[SFV-Interceptor] in-page fetch/blob error in', file, ':', e.message);
             }
           },
         });
@@ -356,6 +402,17 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
         args: [original, modifyCode, staticBody, assetUrl, file],
         func: function(original, modifyCode, staticBody, assetUrl, file) {
+          function execViaBlob(code, label) {
+            const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
+            const blob = new Blob([src], { type: 'text/javascript' });
+            const url  = URL.createObjectURL(blob);
+            const s    = document.createElement('script');
+            s.src = url;
+            s.onload  = () => { URL.revokeObjectURL(url); s.remove(); };
+            s.onerror = () => { URL.revokeObjectURL(url); s.remove();
+              console.error('[SFV-Interceptor] blob error in', label); };
+            (document.head || document.documentElement).appendChild(s);
+          }
           let patched = original;
           if (staticBody !== null) {
             patched = staticBody;
@@ -374,8 +431,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
             console.log('%c[SFV-Interceptor]%c ⚠ JS file unchanged — ' + file,
               'color:#fbbf24;font-weight:700;background:#2d1f00;padding:2px 6px;border-radius:3px','color:#fbbf24;font-weight:600');
           }
-          try { ;(0, eval)(patched); }
-          catch(e) { console.error('[SFV-Interceptor] eval error in', file, ':', e.message); }
+          execViaBlob(patched, file);
         },
       });
       setIcon(tabId, true);
@@ -414,20 +470,23 @@ function notifyRulesChanged() {
   chrome.runtime.sendMessage({ type: 'RULES_CHANGED' }).catch(() => {});
 }
 
-// ── Push updated API rules to the currently active tab ────────────────────────
+// ── Push updated API rules to open tabs ──────────────────────────────────────
 
-async function pushRulesToActiveTab() {
+async function pushRulesToActiveTab(changedRule) {
   const apiRules = await getApiRules();
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (!tab.id || !tab.url || /^(chrome|chrome-extension|about|devtools):/.test(tab.url)) continue;
+    if (changedRule) {
+      const tabMatches = (changedRule.pairs || []).some(pair => urlMatchesPair(tab.url, pair));
+      if (!tabMatches) { if (!apiRules.length) setIcon(tab.id, false); continue; }
+    }
     try {
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['page-hook.js'], world: 'MAIN' });
     } catch {}
     try {
       await chrome.tabs.sendMessage(tab.id, { type: '__sfvi_push_rules__', apis: apiRules });
     } catch {}
-    // If no rules are active, reset icon to blue
     if (!apiRules.length) setIcon(tab.id, false);
   }
 }
@@ -488,7 +547,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const idx = rules.findIndex(r => r.id === rule.id);
         if (idx >= 0) rules[idx] = rule; else rules.push(rule);
         await saveRules(rules); await rebuildDNR(); notifyRulesChanged();
-        await pushRulesToActiveTab();
+        await pushRulesToActiveTab(rule);
         sendResponse({ ok: true, rule }); break;
       }
 
@@ -512,7 +571,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
           }
         }
-        await pushRulesToActiveTab();
+        await pushRulesToActiveTab(rule);
         sendResponse({ ok: true, enabled: rule?.enabled ?? false }); break;
       }
 
