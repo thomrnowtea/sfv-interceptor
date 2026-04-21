@@ -955,7 +955,8 @@ function renderNav(filter = '') {
       else            selectedIds.delete(cb.dataset.id);
       updateSelectButtons();
       // Update selected highlight without full re-render
-      el.classList.toggle('nav-selected', cb.checked);
+      const row = cb.closest('.nav-rule');
+      if (row) row.classList.toggle('nav-selected', cb.checked);
     });
   });
   nav.querySelectorAll('[data-stop-prop]').forEach(label => {
