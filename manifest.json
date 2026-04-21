@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "SFVInterceptor",
+  "name": "SFV Interceptor",
   "version": "2.1.0",
-  "description": "Override JS/CSS files and mock API responses \u2014 no account required.",
+  "description": "Modify, override, and mock HTTP requests, JS, and CSS in real time — no account required.",
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
@@ -16,19 +16,21 @@
   ],
   "action": {
     "default_popup": "popup.html",
+    "default_title": "SFV Interceptor",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  },
-  "background": {
-    "service_worker": "background.js"
   },
   "content_scripts": [
     {
@@ -48,10 +50,10 @@
         "page-hook.js",
         "pages/dashboard.html",
         "pages/dashboard.js",
+        "pages/sidebar-interactions.js",
         "icons/icon16g.png",
         "icons/icon48g.png",
-        "icons/icon128g.png",
-        "pages/sidebar-interactions.js"
+        "icons/icon128g.png"
       ],
       "matches": [
         "<all_urls>"
