@@ -889,7 +889,7 @@ function typeLabel(t, sub) {
   if (t === 'html') {
     return { js: 'JS', css: 'CSS', html: 'HTML' }[sub] || 'RES';
   }
-  return { rest: 'API', graphql: 'GQL' }[t] || 'API';
+  return { rest: 'REST', graphql: 'GQL' }[t] || 'REST';
 }
 
 function renderNav(filter = '') {
@@ -1099,11 +1099,11 @@ function buildEditorHTML(rule) {
         <div class="type-selector" id="type-selector">
           <button type="button" class="type-btn ${resType === 'rest' ? 'active' : ''}" data-type="rest"
             style="--btn-color:var(--green);--btn-bg:var(--green-dim)">
-            <span class="dot" style="background:var(--green)"></span> API
+            <span class="dot" style="background:var(--green)"></span> REST API
           </button>
           <button type="button" class="type-btn ${resType === 'graphql' ? 'active t-gql' : ''}" data-type="graphql"
             style="--btn-color:#fb7185;--btn-bg:rgba(251,113,133,0.12)">
-            <span class="dot" style="background:#fb7185"></span> GraphQL
+            <span class="dot" style="background:#fb7185"></span> GraphQL API
           </button>
           <button type="button" class="type-btn ${resType === 'html' ? 'active t-htm' : ''}" data-type="html"
             style="--btn-color:var(--accent);--btn-bg:var(--accent-dim)">

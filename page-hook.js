@@ -60,10 +60,42 @@
   }
 
   function buildResponse(rule, body) {
-    return new Response(body, {
-      status:  parseInt(rule.statusCode) || 200,
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    });
+    // Start with the configured status code
+    const status = parseInt(rule.statusCode) || 200;
+    // Merge custom headers over the default Content-Type.
+    // rule.customHeaders is a JSON string set in the dashboard.
+    const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+    if (rule.customHeaders) {
+      try {
+        const custom = typeof rule.customHeaders === 'string'
+          ? JSON.parse(rule.customHeaders)
+          : rule.customHeaders;
+        Object.assign(headers, custom);
+      } catch {}
+    }
+    return new Response(body, { status, headers });
+  }
+
+  // matchesGqlOperation: returns true if the rule has no gql operation filter,
+  // or if the request body contains the specified operation name.
+  function matchesGqlOperation(rule, requestBody) {
+    if (!rule.gqlOperation) return true;
+    if (!requestBody) return false;
+    try {
+      const bodyStr = typeof requestBody === 'string'
+        ? requestBody
+        : JSON.stringify(requestBody);
+      // GraphQL requests send { query: '...', operationName: '...' }
+      // Match against operationName field or the query string itself
+      const parsed = JSON.parse(bodyStr);
+      if (parsed.operationName) {
+        return parsed.operationName === rule.gqlOperation;
+      }
+      // Fallback: scan the query string for the operation name
+      return (parsed.query || '').includes(rule.gqlOperation);
+    } catch {
+      return String(requestBody).includes(rule.gqlOperation);
+    }
   }
 
   function runModifyResponse(rule, args) {
@@ -77,11 +109,29 @@
   // ═══════════════════════════════════════════════════════════════════════════
 
   window.fetch = async function (input, init) {
-    const url    = typeof input === 'string' ? input : (input?.url ?? '');
-    const method = ((init?.method || (input && typeof input === 'object' && input.method) || 'GET')).toUpperCase();
-    const abs    = toAbs(url);
+    // Fix: handle Request objects correctly — input may be a Request instance,
+    // a string URL, or a URL object. Extract url and method from all cases.
+    let url, method, reqBody;
+    if (input instanceof Request) {
+      url    = input.url;
+      method = (init?.method || input.method || 'GET').toUpperCase();
+      // Clone to allow reading the body later for GraphQL matching
+      reqBody = init?.body ?? null;
+      if (!reqBody && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        try { reqBody = await input.clone().text(); } catch {}
+      }
+    } else {
+      url     = typeof input === 'string' ? input : (input?.url ?? '');
+      method  = (init?.method || 'GET').toUpperCase();
+      reqBody = init?.body ?? null;
+    }
+    const abs = toAbs(url);
 
-    const rule = STATE.apis.find(r => matchesRule(abs, r) && (!r.method || r.method === method));
+    const rule = STATE.apis.find(r =>
+      matchesRule(abs, r) &&
+      (!r.method || r.method === method) &&
+      matchesGqlOperation(r, reqBody)
+    );
     if (!rule) return _nativeFetch(input, init);
 
     notifyApplied(rule.id, abs);
@@ -110,7 +160,7 @@
         responseJSON:   origJSON,
         responseType:   origResp.headers.get('content-type') || '',
         requestHeaders: {},
-        requestData:    init?.body ?? null,
+        requestData:    reqBody,
       });
       return buildResponse(rule, body);
     } catch(e) {
@@ -145,7 +195,9 @@
 
   XMLHttpRequest.prototype.send = function (body) {
     const rule = STATE.apis.find(r =>
-      matchesRule(this.__miUrl || '', r) && (!r.method || r.method === this.__miMethod)
+      matchesRule(this.__miUrl || '', r) &&
+      (!r.method || r.method === this.__miMethod) &&
+      matchesGqlOperation(r, body)
     );
     if (!rule) return _protoSend.call(this, body);
 

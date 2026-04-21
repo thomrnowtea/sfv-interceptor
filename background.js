@@ -451,13 +451,15 @@ async function getApiRules() {
       const regexFilter = pairToRegexFilter(pair);
       if (!regexFilter) continue;
       result.push({
-        id:           rule.id + '|' + pair.id,
-        regex:        regexFilter,
-        method:       pair.method       || '',
-        responseType: pair.responseType || 'static',
-        responseBody: pair.responseBody || '',
-        statusCode:   pair.statusCode   || 200,
-        delay:        parseInt(pair.delay) || 0,
+        id:            rule.id + '|' + pair.id,
+        regex:         regexFilter,
+        method:        pair.method        || '',
+        responseType:  pair.responseType  || 'static',
+        responseBody:  pair.responseBody  || '',
+        statusCode:    pair.statusCode    || 200,
+        delay:         parseInt(pair.delay) || 0,
+        gqlOperation:  pair.gqlOperation  || '',
+        customHeaders: rule.customHeaders || '',
       });
     }
   }
