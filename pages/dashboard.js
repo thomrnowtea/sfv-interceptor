@@ -1562,8 +1562,12 @@ async function bindEditorEvents(rule, isNew = false) {
       showToast('✓ Rule saved');
       ghostRule = null;
       currentId = res.rule.id;
-      await refresh();
+      // Patch allRules immediately so selectRule renders the saved rule even if
+      // a concurrent RULES_CHANGED refresh has _refreshing=true and skips ours.
+      const savedIdx = allRules.findIndex(r => r.id === currentId);
+      if (savedIdx >= 0) allRules[savedIdx] = res.rule; else allRules.push(res.rule);
       selectRule(currentId, false);
+      refresh(); // update sidebar nav; no-await intentional
     } else { showToast('Failed to save.', true); }
   });
 
@@ -1782,27 +1786,20 @@ document.getElementById('delete-selected').addEventListener('click', async () =>
 
 
 
-document.getElementById('import-all').addEventListener('click', () =>
-  document.getElementById('import-file').click()
-);
+// ── Import Modal ──────────────────────────────────────────────────────────────
 
-document.getElementById('import-file').addEventListener('change', async (e) => {
-  const file = e.target.files[0]; if (!file) return; e.target.value = '';
-  let raw;
-  try { raw = JSON.parse(await file.text()); } catch { showToast('Invalid JSON', true); return; }
-  if (!Array.isArray(raw)) { showToast('Expected array', true); return; }
-  const isRQ   = raw.length === 0 || raw[0].objectType === 'rule' || raw[0].ruleType;
+async function processImportRaw(raw) {
+  if (!Array.isArray(raw)) { showToast('Expected JSON array', true); return; }
+  const isRQ     = raw.length === 0 || raw[0].objectType === 'rule' || raw[0].ruleType;
   const incoming = isRQ ? raw.map(fromRQ) : raw;
-  if (!incoming.length) { showToast('No rules in file', true); return; }
+  if (!incoming.length) { showToast('No rules found', true); return; }
 
-  // Detect conflicts
   const existingIds = new Set(allRules.map(r => r.id));
   const conflicts   = incoming.filter(r => existingIds.has(r.id)).length;
   const fresh       = incoming.length - conflicts;
 
   let strategy = 'skip';
   if (conflicts > 0) {
-    // Ask only if there are conflicts
     const overwrite = confirm(
       `Importing ${incoming.length} rule(s):\n` +
       `  • ${fresh} new\n` +
@@ -1815,7 +1812,50 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   const res = await msg({ type: 'MERGE_RULES', rules: incoming, strategy });
   await refresh();
   showToast(`✓ ${res.added} added · ${res.updated} updated · ${res.skipped} skipped`);
+}
+
+const importModal    = document.getElementById('import-modal');
+const importUrlInput = document.getElementById('import-url-input');
+const importUrlBtn   = document.getElementById('import-from-url');
+
+function openImportModal()  { importModal.style.display = 'flex'; importUrlInput.value = ''; }
+function closeImportModal() { importModal.style.display = 'none'; }
+
+document.getElementById('import-all').addEventListener('click', openImportModal);
+document.getElementById('import-modal-close').addEventListener('click', closeImportModal);
+importModal.addEventListener('click', e => { if (e.target === importModal) closeImportModal(); });
+
+document.getElementById('import-from-file').addEventListener('click', () => {
+  closeImportModal();
+  document.getElementById('import-file').click();
 });
+
+document.getElementById('import-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return; e.target.value = '';
+  let raw;
+  try { raw = JSON.parse(await file.text()); } catch { showToast('Invalid JSON', true); return; }
+  await processImportRaw(raw);
+});
+
+importUrlBtn.addEventListener('click', async () => {
+  const url = importUrlInput.value.trim();
+  if (!url) { showToast('Enter a URL', true); return; }
+  importUrlBtn.disabled = true; importUrlBtn.textContent = '...';
+  try {
+    const response = await fetch(url);
+    if (!response.ok) { showToast(`HTTP ${response.status}`, true); return; }
+    let raw;
+    try { raw = await response.json(); } catch { showToast('Response is not valid JSON', true); return; }
+    closeImportModal();
+    await processImportRaw(raw);
+  } catch (err) {
+    showToast('Fetch failed: ' + err.message, true);
+  } finally {
+    importUrlBtn.disabled = false; importUrlBtn.textContent = '↓ Fetch';
+  }
+});
+
+importUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') importUrlBtn.click(); });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
