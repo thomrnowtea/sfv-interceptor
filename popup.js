@@ -1,5 +1,18 @@
 // popup.js — SFV-Interceptor
 
+// ── Theme sync ────────────────────────────────────────────────────────────────
+function _applyThemeVars(vars) {
+  if (!vars) return;
+  const root = document.documentElement;
+  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+}
+chrome.storage.local.get('sfvi_theme_vars', d => _applyThemeVars(d.sfvi_theme_vars));
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.sfvi_theme_vars) {
+    _applyThemeVars(changes.sfvi_theme_vars.newValue);
+  }
+});
+
 let _allRules = [];
 let _currentTab = 'all';
 
@@ -172,18 +185,26 @@ function fromRequestlyRule(rq) {
 }
 
 // ── Sort (mirrors dashboard sort stored in chrome.storage.local) ──────────────
-let _sortKey = 'none', _sortDir = 'asc';
+let _sortKey = 'custom', _sortDir = 'asc', _customOrder = [];
 const _typeOrder = { rest: 0, graphql: 1, html: 2 };
 const _subOrder  = { html: 0, css: 1, js: 2 };
 
-chrome.storage.local.get(['sfvi_sort_key', 'sfvi_sort_dir'], d => {
-  _sortKey = d.sfvi_sort_key || 'none';
-  _sortDir = d.sfvi_sort_dir || 'asc';
+chrome.storage.local.get(['sfvi_sort_key', 'sfvi_sort_dir', 'sfvi_custom_order'], d => {
+  _sortKey     = d.sfvi_sort_key  || 'custom';
+  _sortDir     = d.sfvi_sort_dir  || 'asc';
+  _customOrder = Array.isArray(d.sfvi_custom_order) ? d.sfvi_custom_order : [];
   renderRules();
 });
 
 function _sortedRules() {
-  if (_sortKey === 'none') return [..._allRules];
+  if (_sortKey === 'custom') {
+    if (!_customOrder.length) return [..._allRules];
+    return [..._allRules].sort((a, b) => {
+      const ai = _customOrder.indexOf(a.id);
+      const bi = _customOrder.indexOf(b.id);
+      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+    });
+  }
   return [..._allRules].sort((a, b) => {
     let va, vb;
     if (_sortKey === 'name') {

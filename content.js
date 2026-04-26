@@ -14,7 +14,7 @@
   try { await chrome.runtime.sendMessage({ type: 'INJECT_HOOK' }); } catch {}
 
   function send() {
-    window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: data.rules }, '*');
+    window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: data.rules }, location.origin);
   }
   send();
   window.addEventListener('message', function h(ev) {
@@ -22,12 +22,16 @@
   });
 })();
 
+let _lastRuleApplied = 0;
 window.addEventListener('__sfvi_applied__', () => {
+  const now = Date.now();
+  if (now - _lastRuleApplied < 500) return;
+  _lastRuleApplied = now;
   chrome.runtime.sendMessage({ type: 'RULE_APPLIED' }).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === '__sfvi_push_rules__') {
-    window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: msg.apis }, '*');
+    window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: msg.apis }, location.origin);
   }
 });

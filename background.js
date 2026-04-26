@@ -93,7 +93,7 @@ function pairToRegexFilter(pair) {
   const cs  = pair.caseSensitive || false;
   if (!pat) return null;
   if (op === 'Regex')    return pat;
-  const escapeNoStar = s => s.replace(/[-/\^$+?.()|[\]{}]/g, '\$&');
+  const escapeNoStar = s => s.replace(/[-/\^$+?.()|[\]{}]/g, '\\$&');
   if (op === 'Equals')   return '^' + escapeNoStar(pat) + '$';
   if (op === 'Wildcard') return escapeNoStar(pat).replace(/\*/g, '.*');
   return escapeNoStar(pat); // Contains — match anywhere
@@ -292,6 +292,14 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   }
   if (!matches.length) return;
 
+  // Ensure page-hook.js is present so _t() toast helpers inside executeScript can find _s
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
+      files: ['page-hook.js'],
+    });
+  } catch {}
+
   await Promise.all(matches.filter(m => !m.isPageInject).map(m => getOriginalText(m.assetUrl, pageUrl)));
 
   for (const { assetUrl, ruleId, pairId, isPageInject } of matches) {
@@ -312,11 +320,11 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
           target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
           args: [modifyCode, assetUrl, file],
           func: function(modifyCode, pageUrl, file) {
+            function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
             try {
               const fn = new Function(modifyCode + '\nreturn modifyResponse(arguments[0]);');
               fn({ method:'GET', url:pageUrl, response:'', responseType:'text/html', requestHeaders:{}, requestData:null, responseJSON:null });
-              console.log('%c[SFV-Interceptor]%c ⚡ JS injected into page — ' + file,
-                'color:#34d399;font-weight:700;background:#052e16;padding:2px 6px;border-radius:3px','color:#34d399;font-weight:600');
+              _t('⚡', 'Page Injected', file, 'js · injected', '#60a5fa');
             } catch(e) { console.error('[SFV-Interceptor] page inject error:', e.message); }
           },
         });
@@ -338,6 +346,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
           target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
           args: [modifyCode, staticBody, assetUrl, file],
           func: async function(modifyCode, staticBody, assetUrl, file) {
+            function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
             function execViaBlob(code, label) {
               const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
               const blob = new Blob([src], { type: 'text/javascript' });
@@ -374,15 +383,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
                 if (res != null) patched = typeof res === 'string' ? res : JSON.stringify(res);
               }
               const changed = patched !== original;
-              console.log(
-                changed
-                  ? '%c[SFV-Interceptor]%c 📦 JS file modified — ' + file
-                  : '%c[SFV-Interceptor]%c ⚠ JS file unchanged — ' + file,
-                changed
-                  ? 'color:#34d399;font-weight:700;background:#052e16;padding:2px 6px;border-radius:3px'
-                  : 'color:#fbbf24;font-weight:700;background:#2d1f00;padding:2px 6px;border-radius:3px',
-                changed ? 'color:#34d399;font-weight:600' : 'color:#fbbf24;font-weight:600'
-              );
+              if (changed) _t('📦', 'JS Patched', file, 'modified · js', '#fbbf24');
               execViaBlob(patched, file);
             } catch(e) {
               console.error('[SFV-Interceptor] in-page fetch/blob error in', file, ':', e.message);
@@ -402,6 +403,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
         args: [original, modifyCode, staticBody, assetUrl, file],
         func: function(original, modifyCode, staticBody, assetUrl, file) {
+          function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
           function execViaBlob(code, label) {
             const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
             const blob = new Blob([src], { type: 'text/javascript' });
@@ -424,13 +426,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
             } catch(e) { console.error('[SFV-Interceptor] modifyResponse error in', file, ':', e.message); }
           }
           const changed = patched !== original;
-          if (changed) {
-            console.log('%c[SFV-Interceptor]%c 📦 JS file modified — ' + file,
-              'color:#34d399;font-weight:700;background:#052e16;padding:2px 6px;border-radius:3px','color:#34d399;font-weight:600');
-          } else {
-            console.log('%c[SFV-Interceptor]%c ⚠ JS file unchanged — ' + file,
-              'color:#fbbf24;font-weight:700;background:#2d1f00;padding:2px 6px;border-radius:3px','color:#fbbf24;font-weight:600');
-          }
+          if (changed) _t('📦', 'JS Patched', file, 'modified · js', '#fbbf24');
           execViaBlob(patched, file);
         },
       });
@@ -459,7 +455,7 @@ async function getApiRules() {
         statusCode:    pair.statusCode    || 200,
         delay:         parseInt(pair.delay) || 0,
         gqlOperation:  pair.gqlOperation  || '',
-        customHeaders: rule.customHeaders || '',
+        customHeaders: pair.customHeaders || '',
       });
     }
   }
@@ -495,8 +491,13 @@ async function pushRulesToActiveTab(changedRule) {
 
 // ── Message handler ───────────────────────────────────────────────────────────
 
+const MUTATION_TYPES = new Set(['IMPORT_RULES', 'MERGE_RULES', 'SAVE_RULE', 'DELETE_RULE', 'TOGGLE_RULE']);
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
+    if (MUTATION_TYPES.has(msg.type) && sender.tab) {
+      sendResponse({ error: 'unauthorized' }); return;
+    }
     const tabId = sender.tab?.id;
     switch (msg.type) {
 

@@ -48,9 +48,6 @@
     {
       "resources": [
         "page-hook.js",
-        "pages/dashboard.html",
-        "pages/dashboard.js",
-        "pages/sidebar-interactions.js",
         "icons/icon16g.png",
         "icons/icon48g.png",
         "icons/icon128g.png"
