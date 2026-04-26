@@ -55,15 +55,20 @@ function migrateRule(rule) {
   };
 }
 
+let _rulesCache = null;
+
 async function getRules() {
+  if (_rulesCache) return _rulesCache;
   return new Promise(r =>
     chrome.storage.local.get([STORAGE_KEY], d => {
       const raw = d[STORAGE_KEY] || [];
-      r(raw.map(migrateRule));
+      _rulesCache = raw.map(migrateRule);
+      r(_rulesCache);
     })
   );
 }
 async function saveRules(rules) {
+  _rulesCache = null;
   return new Promise(r => chrome.storage.local.set({ [STORAGE_KEY]: rules }, r));
 }
 function generateId() {
@@ -234,25 +239,22 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   originalCache.clear();
   pendingOriginal.clear();
 
-  const scriptUrlsPromise = getScriptUrlsForPage(pageUrl);
-  const rules     = await getRules();
+  const [rules, scriptUrls] = await Promise.all([getRules(), getScriptUrlsForPage(pageUrl)]);
   const htmlRules = rules.filter(r => r.enabled !== false && r.resourceType === 'html');
   if (!htmlRules.length) return;
 
-  scriptUrlsPromise.then(scriptUrls => {
-    for (const rule of htmlRules) {
-      const sub = rule.resourceSubtype || 'js';
-      if (sub === 'html') continue; // page-inject, no pre-fetch needed
-      const extFilter = sub === 'css'
-        ? u => /\.css(\?|$)/i.test(u)
-        : u => /\.js(\?|$)/i.test(u);
-      for (const pair of (rule.pairs || [])) {
-        for (const url of scriptUrls.filter(u => extFilter(u) && urlMatchesPair(u, pair))) {
-          getOriginalText(url, pageUrl);
-        }
+  for (const rule of htmlRules) {
+    const sub = rule.resourceSubtype || 'js';
+    if (sub === 'html') continue;
+    const extFilter = sub === 'css'
+      ? u => /\.css(\?|$)/i.test(u)
+      : u => /\.js(\?|$)/i.test(u);
+    for (const pair of (rule.pairs || [])) {
+      for (const url of scriptUrls.filter(u => extFilter(u) && urlMatchesPair(u, pair))) {
+        getOriginalText(url, pageUrl);
       }
     }
-  });
+  }
 });
 
 // ── onCommitted: inject ───────────────────────────────────────────────────────
@@ -262,12 +264,10 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   const pageUrl = details.url;
   if (!pageUrl || /^(chrome|about|devtools|chrome-extension):/.test(pageUrl)) return;
 
-  const tabId     = details.tabId;
-  const rules     = await getRules();
+  const tabId = details.tabId;
+  const [rules, scriptUrls] = await Promise.all([getRules(), getScriptUrlsForPage(pageUrl)]);
   const htmlRules = rules.filter(r => r.enabled !== false && r.resourceType === 'html');
   if (!htmlRules.length) return;
-
-  const scriptUrls = await getScriptUrlsForPage(pageUrl);
 
   // Build matches: one entry per (rule, pair, assetUrl)
   const matches = [];
@@ -292,21 +292,16 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   }
   if (!matches.length) return;
 
-  // Ensure page-hook.js is present so _t() toast helpers inside executeScript can find _s
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
-      files: ['page-hook.js'],
-    });
-  } catch {}
+  await Promise.all([
+    chrome.scripting.executeScript({ target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true, files: ['page-hook.js'] }).catch(() => {}),
+    ...matches.filter(m => !m.isPageInject).map(m => getOriginalText(m.assetUrl, pageUrl)),
+  ]);
 
-  await Promise.all(matches.filter(m => !m.isPageInject).map(m => getOriginalText(m.assetUrl, pageUrl)));
-
-  for (const { assetUrl, ruleId, pairId, isPageInject } of matches) {
+  await Promise.all(matches.map(async ({ assetUrl, ruleId, pairId, isPageInject }) => {
     const rule = rules.find(r => r.id === ruleId && r.enabled !== false);
-    if (!rule) continue;
+    if (!rule) return;
     const pair = (rule.pairs || []).find(p => p.id === pairId);
-    if (!pair) continue;
+    if (!pair) return;
 
     const file = isPageInject
       ? new URL(assetUrl).pathname.split('/').filter(Boolean).pop() || 'page'
@@ -314,23 +309,23 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 
     if (isPageInject) {
       const modifyCode = pair.responseBody || '';
-      if (!modifyCode) continue;
+      if (!modifyCode) return;
       try {
         await chrome.scripting.executeScript({
           target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
-          args: [modifyCode, assetUrl, file],
-          func: function(modifyCode, pageUrl, file) {
+          args: [modifyCode, assetUrl, file, rule.name],
+          func: function(modifyCode, pageUrl, file, ruleName) {
             function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
             try {
               const fn = new Function(modifyCode + '\nreturn modifyResponse(arguments[0]);');
               fn({ method:'GET', url:pageUrl, response:'', responseType:'text/html', requestHeaders:{}, requestData:null, responseJSON:null });
-              _t('⚡', 'Page Injected', file, 'js · injected', '#60a5fa');
+              _t('⚡', 'Page Injected', ruleName, file + ' · html', '#60a5fa');
             } catch(e) { console.error('[SFV-Interceptor] page inject error:', e.message); }
           },
         });
         setIcon(tabId, true);
       } catch(e) { console.error('[SFV-I SW] page inject failed:', e.message); }
-      continue;
+      return;
     }
 
     const original = await getOriginalText(assetUrl, pageUrl);
@@ -340,12 +335,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     if (original === null) {
       const modifyCode = pair.responseType === 'static' ? null : (pair.responseBody || '');
       const staticBody = pair.responseType === 'static' ? (pair.responseBody || '') : null;
-      if (!modifyCode && staticBody === null) continue;
+      if (!modifyCode && staticBody === null) return;
       try {
         await chrome.scripting.executeScript({
           target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
-          args: [modifyCode, staticBody, assetUrl, file],
-          func: async function(modifyCode, staticBody, assetUrl, file) {
+          args: [modifyCode, staticBody, assetUrl, file, rule.name],
+          func: async function(modifyCode, staticBody, assetUrl, file, ruleName) {
             function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
             function execViaBlob(code, label) {
               const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
@@ -359,15 +354,9 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
               (document.head || document.documentElement).appendChild(s);
             }
             try {
-              // Fetch as the browser would for a script: same cookies, correct sec-fetch headers
               const resp = await fetch(assetUrl, {
-                method: 'GET',
-                credentials: 'include',
-                cache: 'no-store',
-                headers: {
-                  'Accept': '*/*',
-                  'Referer': location.href,
-                },
+                method: 'GET', credentials: 'include', cache: 'no-store',
+                headers: { 'Accept': '*/*', 'Referer': location.href },
                 mode: 'same-origin',
               });
               if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -383,7 +372,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
                 if (res != null) patched = typeof res === 'string' ? res : JSON.stringify(res);
               }
               const changed = patched !== original;
-              if (changed) _t('📦', 'JS Patched', file, 'modified · js', '#fbbf24');
+              if (changed) _t('📦', 'JS Patched', ruleName, file + ' · js', '#fbbf24');
               execViaBlob(patched, file);
             } catch(e) {
               console.error('[SFV-Interceptor] in-page fetch/blob error in', file, ':', e.message);
@@ -392,7 +381,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
         });
         setIcon(tabId, true);
       } catch(e) { console.error('[SFV-I SW] in-page executeScript failed for', file, ':', e.message); }
-      continue;
+      return;
     }
 
     const modifyCode = pair.responseType === 'static' ? null : (pair.responseBody || '');
@@ -401,8 +390,8 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     try {
       await chrome.scripting.executeScript({
         target: { tabId, allFrames: false }, world: 'MAIN', injectImmediately: true,
-        args: [original, modifyCode, staticBody, assetUrl, file],
-        func: function(original, modifyCode, staticBody, assetUrl, file) {
+        args: [original, modifyCode, staticBody, assetUrl, file, rule.name],
+        func: function(original, modifyCode, staticBody, assetUrl, file, ruleName) {
           function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
           function execViaBlob(code, label) {
             const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
@@ -426,13 +415,13 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
             } catch(e) { console.error('[SFV-Interceptor] modifyResponse error in', file, ':', e.message); }
           }
           const changed = patched !== original;
-          if (changed) _t('📦', 'JS Patched', file, 'modified · js', '#fbbf24');
+          if (changed) _t('📦', 'JS Patched', ruleName, file + ' · js', '#fbbf24');
           execViaBlob(patched, file);
         },
       });
       setIcon(tabId, true);
     } catch(e) { console.error('[SFV-I SW] executeScript failed for', file, ':', e.message); }
-  }
+  }));
 });
 
 // ── API rules for page-hook ───────────────────────────────────────────────────
