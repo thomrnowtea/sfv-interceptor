@@ -5,6 +5,11 @@ function _applyThemeVars(vars) {
   if (!vars) return;
   const root = document.documentElement;
   Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+  const bg = vars['--bg'];
+  if (bg?.startsWith('#') && bg.length >= 7) {
+    const r = parseInt(bg.slice(1,3), 16), g = parseInt(bg.slice(3,5), 16), b = parseInt(bg.slice(5,7), 16);
+    root.setAttribute('data-scheme', (0.299*r + 0.587*g + 0.114*b) / 255 > 0.5 ? 'light' : 'dark');
+  }
 }
 chrome.storage.local.get('sfvi_theme_vars', d => _applyThemeVars(d.sfvi_theme_vars));
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -14,7 +19,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 let _allRules = [];
-let _currentTab = 'all';
+let _currentTab = 'active';
 
 async function sendMsg(msg) { return chrome.runtime.sendMessage(msg); }
 async function loadRules() { const r = await sendMsg({ type:'GET_RULES' }); return r.rules||[]; }
@@ -103,10 +108,19 @@ function renderRules() {
 
 async function refresh() { _allRules = await loadRules(); renderRules(); }
 
-function openDashboard(editId, action) {
-  let url = chrome.runtime.getURL('pages/dashboard.html');
-  if (editId)       url += '?edit=' + editId;
-  else if (action)  url += '?action=' + action;
+async function openDashboard(editId, action) {
+  let url = chrome.runtime.getURL('dashboard/dashboard.html');
+  if (editId) {
+    url += '?edit=' + editId;
+  } else if (action === 'new') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabUrl = tab?.url || '';
+    url += '?action=new';
+    if (tabUrl && !/^(chrome|about|devtools|chrome-extension):/.test(tabUrl))
+      url += '&prefillUrl=' + encodeURIComponent(tabUrl);
+  } else if (action) {
+    url += '?action=' + action;
+  }
   chrome.tabs.create({ url });
   window.close();
 }
