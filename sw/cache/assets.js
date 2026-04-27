@@ -1,8 +1,8 @@
 import { LRUMap } from './lru.js';
 
 export const originalCache   = new LRUMap(40);
-export const htmlCache       = new LRUMap(60);
-export const pendingHtml     = new LRUMap(60);
+       const htmlCache       = new LRUMap(60);
+       const pendingHtml     = new LRUMap(60);
 export const pendingOriginal = new LRUMap(40);
 
 export function clearAssetCaches() {

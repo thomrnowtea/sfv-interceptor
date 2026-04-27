@@ -1,31 +1,3 @@
-export function toRQ(rule) {
-  const now = Date.now();
-  const resType = rule.resourceType === 'graphql' ? 'graphqlApi'
-                : rule.resourceType === 'html'    ? 'staticFile' : 'restApi';
-  const pairs = (rule.pairs || []).map(p => ({
-    id: p.id || Math.random().toString(36).slice(2, 7),
-    response: {
-      resourceType: resType, statusCode: p.statusCode || '',
-      type: p.responseType === 'dynamic' ? 'code' : 'static',
-      value: p.responseBody || '',
-    },
-    source: {
-      filters: p.method ? [{ requestMethod: [p.method] }] : [],
-      key: 'Url', operator: p.urlOperator || 'Contains', value: p.urlPattern || '',
-    },
-  }));
-  return {
-    createdBy: null, creationDate: now, currentOwner: null,
-    description: rule.description || '', groupId: '',
-    id: rule.id || ('Response_' + Math.random().toString(36).slice(2, 8)),
-    isSample: false, lastModifiedBy: null, modificationDate: now,
-    name: rule.name || 'Untitled', objectType: 'rule',
-    pairs: pairs.length ? pairs : [{ id:'p0', response:{resourceType:resType,statusCode:'',type:'static',value:''}, source:{filters:[],key:'Url',operator:'Contains',value:''} }],
-    ruleType: 'Response',
-    status: rule.enabled !== false ? 'Active' : 'Inactive',
-  };
-}
-
 export function fromRQ(rq) {
   const firstPair = rq.pairs?.[0] || {};
   const firstResp = firstPair.response || {};
