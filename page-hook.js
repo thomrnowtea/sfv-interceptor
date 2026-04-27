@@ -358,7 +358,7 @@
 
     if (rule.responseType !== 'dynamic') {
       try { await _nativeFetch(input, init); } catch {}
-      _sfviToast('🔁', 'Rule Applied', title, 'mocked · ' + statusCode, '#34d399');
+      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       return buildResponse(rule, rule.responseBody || '', abs);
     }
 
@@ -375,10 +375,10 @@
         requestHeaders: {},
         requestData:    reqBody,
       });
-      _sfviToast('🔁', 'Rule Applied', title, 'modified · ' + statusCode, '#34d399');
+      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
       return buildResponse(rule, body, abs);
     } catch {
-      _sfviToast('🔁', 'Rule Applied', title, 'mocked · ' + statusCode, '#34d399');
+      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       return buildResponse(rule, rule.responseBody || '', abs);
     }
   };
@@ -461,7 +461,7 @@
       const realXhr = new _NativeXHR();
       _protoOpen.call(realXhr, reqMethod, reqUrl, true);
       Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-      realXhr.onload  = () => { dispatchMock(rule.responseBody || ''); _sfviToast('🔁', 'Rule Applied', title, 'mocked · ' + statusCode, '#34d399'); };
+      realXhr.onload  = () => { dispatchMock(rule.responseBody || ''); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399'); };
       realXhr.onerror = () => { dispatchMock(rule.responseBody || ''); };
       _protoSend.call(realXhr, body);
       return;
@@ -486,10 +486,10 @@
           requestData:    body,
         });
         dispatchMock(result);
-        _sfviToast('🔁', 'Rule Applied', title, 'modified · ' + statusCode, '#34d399');
+        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
       } catch {
         dispatchMock(rule.responseBody || '');
-        _sfviToast('🔁', 'Rule Applied', title, 'mocked · ' + statusCode, '#34d399');
+        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       }
     };
     realXhr.onerror = () => dispatchMock(rule.responseBody || '');
