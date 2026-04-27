@@ -123,7 +123,7 @@
   .rule-item:nth-child(4) { animation-delay: 105ms; }
   .rule-item:nth-child(5) { animation-delay: 140ms; }
   .rule-item:nth-child(n+6){ animation-delay: 175ms; }
-  .rule-item.disabled { filter: grayscale(1) brightness(0.55); }
+  .rule-item.disabled { opacity: 0.4; background: transparent; border-color: transparent; animation: none; }
 
   /* Left accent strip — animates in on hover */
   .rule-item::before {
@@ -225,7 +225,6 @@
   }
   .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
 
-  #import-input { display: none; }
 </style>
 </head>
 <body>
@@ -251,7 +250,6 @@
   <div class="stats" id="stats"><b>0</b> rules · <b>0</b> active</div>
   <button class="btn-sm" id="open-dashboard">↗ Dashboard</button>
 </footer>
-<input type="file" id="import-input" accept=".json" style="display:none">
 <script src="popup.js"></script>
 </body>
 </html>

@@ -39,8 +39,6 @@ export async function saveRules(rules) {
   return new Promise(r => chrome.storage.local.set({ [STORAGE_KEY]: rules }, r));
 }
 
-export function invalidateCache() { _cache = null; }
-
 export function generateId() {
   return 'rule_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 }
