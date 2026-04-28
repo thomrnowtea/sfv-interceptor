@@ -509,6 +509,7 @@ export async function bindEditorEvents(rule, isNew = false) {
       const caseSensitive = row.querySelector('.pair-cs')?.dataset.cs === 'true';
       if (!urlPattern && pairRows.length > 1) return;
       const existingPair = (rule.pairs || [])[idx] || {};
+      const editorBody = getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static');
       pairs.push({
         id:            existingPair.id || ('pair_' + Date.now() + '_' + idx),
         urlPattern,
@@ -516,7 +517,7 @@ export async function bindEditorEvents(rule, isNew = false) {
         method,
         caseSensitive,
         responseType: currentRespType,
-        responseBody: getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static'),
+        responseBody: idx === 0 ? editorBody : (existingPair.responseBody || editorBody),
         statusCode:   document.getElementById('f-status').value,
         delay:        parseInt(document.getElementById('f-delay').value) || 0,
         gqlOperation: document.getElementById('f-gql-op')?.value.trim() || '',

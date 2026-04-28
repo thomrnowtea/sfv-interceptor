@@ -197,7 +197,7 @@ document.getElementById('delete-selected').addEventListener('click', async () =>
 
 async function processImportRaw(raw) {
   if (!Array.isArray(raw)) { showToast('Expected JSON array', true); return; }
-  const isRQ     = raw.length === 0 || raw[0].objectType === 'rule' || raw[0].ruleType;
+  const isRQ = raw.length === 0 || (raw[0] && typeof raw[0] === 'object' && (raw[0].objectType === 'rule' || raw[0].ruleType));
   const incoming = isRQ ? raw.map(fromRQ) : raw;
   if (!incoming.length) { showToast('No rules found', true); return; }
 
@@ -216,9 +216,13 @@ async function processImportRaw(raw) {
     strategy = overwrite ? 'overwrite' : 'skip';
   }
 
-  const res = await msg({ type: 'MERGE_RULES', rules: incoming, strategy });
-  await refresh();
-  showToast(`✓ ${res.added} added · ${res.updated} updated · ${res.skipped} skipped`);
+  try {
+    const res = await msg({ type: 'MERGE_RULES', rules: incoming, strategy });
+    await refresh();
+    showToast(`✓ ${res.added} added · ${res.updated} updated · ${res.skipped} skipped`);
+  } catch (e) {
+    showToast('Import failed: ' + (e.message || 'unknown error'), true);
+  }
 }
 
 const importModal    = document.getElementById('import-modal');

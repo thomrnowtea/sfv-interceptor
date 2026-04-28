@@ -26,17 +26,27 @@ export function migrateRule(rule) {
 
 export async function getRules() {
   if (_cache) return _cache;
-  return new Promise(r =>
+  return new Promise((resolve, reject) =>
     chrome.storage.local.get([STORAGE_KEY], d => {
-      _cache = (d[STORAGE_KEY] || []).map(migrateRule);
-      r(_cache);
+      const raw = d[STORAGE_KEY];
+      if (raw != null && !Array.isArray(raw)) {
+        reject(new Error('Corrupted rules storage: expected array'));
+        return;
+      }
+      _cache = (raw || []).map(migrateRule);
+      resolve(_cache);
     })
   );
 }
 
 export async function saveRules(rules) {
   _cache = null;
-  return new Promise(r => chrome.storage.local.set({ [STORAGE_KEY]: rules }, r));
+  return new Promise((resolve, reject) =>
+    chrome.storage.local.set({ [STORAGE_KEY]: rules }, () => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else resolve();
+    })
+  );
 }
 
 export function generateId() {
