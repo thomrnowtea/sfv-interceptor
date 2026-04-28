@@ -45,7 +45,20 @@ async function pushRulesToActiveTab(changedRule) {
       if (!tabMatches) { if (!apiRules.length) setIcon(tab.id, false); return; }
     }
     try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['page-hook.js'], world: 'MAIN' }); } catch {}
-    try { await chrome.tabs.sendMessage(tab.id, { type: '__sfvi_push_rules__', apis: apiRules }); } catch {}
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, world: 'MAIN',
+        args: [apiRules],
+        func: (apis) => {
+          const s = Reflect.ownKeys(window).reduce((f, k) => {
+            if (f) return f;
+            try { return (typeof k === 'symbol' && window[k]?._sfvi === 1) ? window[k] : null; }
+            catch { return null; }
+          }, null);
+          if (s?.updateApis) s.updateApis(apis);
+        },
+      });
+    } catch {}
     if (!apiRules.length) setIcon(tab.id, false);
   }));
 }

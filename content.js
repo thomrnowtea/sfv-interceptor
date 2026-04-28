@@ -39,14 +39,6 @@ window.addEventListener('__sfvi_applied__', () => {
 });
 
 try {
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === '__sfvi_push_rules__') {
-      window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: msg.apis }, location.origin);
-    }
-  });
-} catch {}
-
-try {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && changes.sfvi_theme_vars) {
       window.postMessage({ type: '__sfvi_theme__', vars: changes.sfvi_theme_vars.newValue }, location.origin);
