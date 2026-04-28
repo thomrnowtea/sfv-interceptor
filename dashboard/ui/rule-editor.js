@@ -1,6 +1,6 @@
 import { state } from '../core/state.js';
 import { esc, msg, showToast } from '../core/utils.js';
-import { mountEditor, getEditorValue, setEditorValue, destroyEditors, formatJS } from '../editor/editor.js';
+import { mountEditor, getEditorValue, setEditorValue, formatJS } from '../editor/editor.js';
 import { analyzeCode, riskSeverity, showSecurityWarning, updateRiskBar } from '../core/security.js';
 import { hrClass } from './nav.js';
 
@@ -14,43 +14,35 @@ export function buildPairRow(pair, idx) {
   const op = pair.urlOperator || 'Contains';
   const cs = pair.caseSensitive || false;
   return `
-    <div class="pair-row" data-pair-idx="${idx}" style="
-      display:grid;
-      grid-template-columns: 120px 1fr auto 100px 28px;
-      gap:6px; align-items:center;
-      margin-bottom:5px;
-    ">
-      <select class="pair-operator" data-idx="${idx}">
-        <option value="Contains" ${op === 'Contains' ? 'selected' : ''}>Contains</option>
-        <option value="Wildcard" ${op === 'Wildcard' ? 'selected' : ''}>Wildcard</option>
-        <option value="Equals"   ${op === 'Equals'   ? 'selected' : ''}>Equals</option>
-        <option value="Regex"    ${op === 'Regex'    ? 'selected' : ''}>Regex</option>
-      </select>
-      <input type="text" class="pair-url" data-idx="${idx}"
-             value="${esc(pair.urlPattern || '')}"
-             placeholder="e.g. *api/endpoint*  or  *.bundle.js*"
-             autocomplete="off" spellcheck="false">
-      <button type="button" class="pair-cs" data-idx="${idx}" title="${cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)'}"
-        style="height:30px;padding:0 8px;border-radius:5px;border:1px solid ${cs ? 'var(--accent)' : 'var(--border2)'};
-               background:${cs ? 'var(--accent-dim)' : 'var(--surface2)'};color:${cs ? 'var(--accent)' : 'var(--muted)'};
-               font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;font-family:inherit;">
-        Aa
-      </button>
-      <select class="pair-method" data-idx="${idx}">
-        <option value=""       ${!pair.method             ? 'selected' : ''}>Any</option>
-        <option value="GET"    ${pair.method === 'GET'    ? 'selected' : ''}>GET</option>
-        <option value="POST"   ${pair.method === 'POST'   ? 'selected' : ''}>POST</option>
-        <option value="PUT"    ${pair.method === 'PUT'    ? 'selected' : ''}>PUT</option>
-        <option value="PATCH"  ${pair.method === 'PATCH'  ? 'selected' : ''}>PATCH</option>
-        <option value="DELETE" ${pair.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
-      </select>
-      ${idx > 0
-        ? `<button type="button" class="pair-remove" data-idx="${idx}"
-             style="background:none;border:none;color:var(--muted);cursor:pointer;
-                    padding:0;font-size:15px;line-height:1;text-align:center;
-                    border-radius:4px;transition:color .15s;" title="Remove">✕</button>`
-        : `<div></div>`
-      }
+    <div class="pair-row" data-pair-idx="${idx}">
+      <div class="pair-input-box">
+        <select class="pair-operator" data-idx="${idx}">
+          <option value="Contains" ${op === 'Contains' ? 'selected' : ''}>Contains</option>
+          <option value="Wildcard" ${op === 'Wildcard' ? 'selected' : ''}>Wildcard</option>
+          <option value="Equals"   ${op === 'Equals'   ? 'selected' : ''}>Equals</option>
+          <option value="Regex"    ${op === 'Regex'    ? 'selected' : ''}>Regex</option>
+        </select>
+        <div class="pair-divider"></div>
+        <input type="text" class="pair-url" data-idx="${idx}"
+               value="${esc(pair.urlPattern || '')}"
+               placeholder="e.g. *api/endpoint*  or  *.bundle.js*"
+               autocomplete="off" spellcheck="false">
+        <select class="pair-method" data-idx="${idx}">
+          <option value=""       ${!pair.method             ? 'selected' : ''}>Any</option>
+          <option value="GET"    ${pair.method === 'GET'    ? 'selected' : ''}>GET</option>
+          <option value="POST"   ${pair.method === 'POST'   ? 'selected' : ''}>POST</option>
+          <option value="PUT"    ${pair.method === 'PUT'    ? 'selected' : ''}>PUT</option>
+          <option value="PATCH"  ${pair.method === 'PATCH'  ? 'selected' : ''}>PATCH</option>
+          <option value="DELETE" ${pair.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
+        </select>
+        <button type="button" class="pair-cs" data-idx="${idx}" data-cs="${cs}" title="${cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)'}">
+          Aa
+        </button>
+        ${idx > 0
+          ? `<button type="button" class="pair-remove" data-idx="${idx}" title="Remove">✕</button>`
+          : ''
+        }
+      </div>
     </div>
   `;
 }
@@ -344,9 +336,6 @@ export async function bindEditorEvents(rule, isNew = false) {
       btn.addEventListener('click', () => {
         const cs = btn.dataset.cs !== 'true';
         btn.dataset.cs = String(cs);
-        btn.style.borderColor  = cs ? 'var(--accent)'    : 'var(--border2)';
-        btn.style.background   = cs ? 'var(--accent-dim)': 'var(--surface2)';
-        btn.style.color        = cs ? 'var(--accent)'    : 'var(--muted)';
         btn.title = cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)';
         checkDirty();
       });

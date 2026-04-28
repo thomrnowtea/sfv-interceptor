@@ -1,6 +1,6 @@
 import { getRules } from '../core/rules.js';
 import { urlMatchesPair } from '../core/matcher.js';
-import { getScriptUrlsForPage, getOriginalText, originalCache, pendingOriginal, clearHtmlCache } from '../cache/assets.js';
+import { getScriptUrlsForPage, getOriginalText, clearHtmlCache } from '../cache/assets.js';
 import { setIcon } from './icons.js';
 
 export function initNavigation() {

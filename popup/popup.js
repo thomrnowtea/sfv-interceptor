@@ -157,10 +157,11 @@ chrome.storage.local.get(['sfvi_sort_key', 'sfvi_sort_dir', 'sfvi_custom_order']
 function _sortedRules() {
   if (_sortKey === 'custom') {
     if (!_customOrder.length) return [..._allRules];
+    const orderMap = new Map(_customOrder.map((id, i) => [id, i]));
     return [..._allRules].sort((a, b) => {
-      const ai = _customOrder.indexOf(a.id);
-      const bi = _customOrder.indexOf(b.id);
-      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+      const ai = orderMap.get(a.id);
+      const bi = orderMap.get(b.id);
+      return (ai === undefined ? Infinity : ai) - (bi === undefined ? Infinity : bi);
     });
   }
   return [..._allRules].sort((a, b) => {

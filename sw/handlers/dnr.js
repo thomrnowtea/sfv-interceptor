@@ -2,7 +2,7 @@ import { getRules } from '../core/rules.js';
 import { pairToRegexFilter } from '../core/matcher.js';
 import { clearAssetCaches } from '../cache/assets.js';
 
-export function stableId(ruleId, pairId) {
+function stableId(ruleId, pairId) {
   const str = ruleId + '\x00' + pairId;
   let h1 = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) { h1 ^= str.charCodeAt(i); h1 = Math.imul(h1, 0x01000193) >>> 0; }

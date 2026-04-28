@@ -171,7 +171,7 @@ document.getElementById('export-selected').addEventListener('click', () => {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = 'sfv-interceptor-rules.json'; a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
   showToast(`↑ Exported ${toExport.length} rule(s)`);
 });
 
@@ -318,7 +318,7 @@ importUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') importU
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url; a.download = 'sfv-interceptor-rules.json'; a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 })();
 

@@ -16,10 +16,11 @@ export const state = {
 export function sortedRules() {
   if (state.sortKey === 'custom') {
     if (!state.customOrder.length) return [...state.allRules];
+    const orderMap = new Map(state.customOrder.map((id, i) => [id, i]));
     return [...state.allRules].sort((a, b) => {
-      const ai = state.customOrder.indexOf(a.id);
-      const bi = state.customOrder.indexOf(b.id);
-      return (ai === -1 ? Infinity : ai) - (bi === -1 ? Infinity : bi);
+      const ai = orderMap.get(a.id);
+      const bi = orderMap.get(b.id);
+      return (ai === undefined ? Infinity : ai) - (bi === undefined ? Infinity : bi);
     });
   }
   const typeOrder = { rest: 0, graphql: 1, html: 2 };

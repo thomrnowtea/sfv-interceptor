@@ -166,15 +166,6 @@ const RISK_PATTERNS = [
   },
 ];
 
-function stripCommentsAndStrings(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/\/\/.*/g, ' ')
-    .replace(/`(?:[^`\\]|\\.)*`/g, '""')
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''");
-}
-
 export function analyzeCode(code) {
   if (!code || !code.trim()) return [];
 

@@ -289,12 +289,24 @@
 
   // ── State ─────────────────────────────────────────────────────────────────
   const STATE = { apis: [] };
+  const _regexCache = new Map();
+
+  function updateApis(apis) {
+    STATE.apis = apis;
+    _regexCache.clear();
+    for (const rule of apis) {
+      if (rule.regex) {
+        try { _regexCache.set(rule.regex, new RegExp(rule.regex, 'i')); } catch {}
+      }
+    }
+  }
+  _s.updateApis = updateApis;
 
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return;
     if (!ev.data) return;
     if (ev.data.type === '__sfvi_hook_data__') {
-      if (ev.data.apis) STATE.apis = ev.data.apis;
+      if (ev.data.apis) updateApis(ev.data.apis);
     } else if (ev.data.type === '__sfvi_theme__') {
       _applyThemeVars(ev.data.vars);
     }
@@ -308,6 +320,8 @@
 
   function matchesRule(url, rule) {
     if (!rule.regex) return false;
+    const re = _regexCache.get(rule.regex);
+    if (re) return re.test(url);
     try { return new RegExp(rule.regex, 'i').test(url); } catch { return false; }
   }
 

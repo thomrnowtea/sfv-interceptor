@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SFV Interceptor",
-  "version": "2.1.0",
+  "version": "1.2.0",
   "description": "Modify, override, and mock HTTP requests, JS, and CSS in real time — no account required.",
   "permissions": [
     "declarativeNetRequest",
