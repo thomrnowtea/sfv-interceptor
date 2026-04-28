@@ -77,8 +77,8 @@
           transition-duration: 0.3s;
         }
         #c {
-          background: #16181f;
-          border: 1px solid #252836;
+          background: var(--sfvi-surface, #16181f);
+          border: 1px solid var(--sfvi-border, #252836);
           border-left: 3px solid var(--ac, #34d399);
           border-radius: 10px;
           overflow: hidden;
@@ -90,11 +90,11 @@
           align-items: center;
           gap: 7px;
           padding: 9px 13px 8px;
-          border-bottom: 1px solid #1e2230;
+          border-bottom: 1px solid var(--sfvi-border2, #1e2230);
         }
         .hi { font-size: 14px; line-height: 1; flex-shrink: 0; }
         .hn {
-          color: #555e6b;
+          color: var(--sfvi-text3, #555e6b);
           font-size: 10.5px;
           font-weight: 600;
           letter-spacing: .04em;
@@ -129,7 +129,7 @@
           text-transform: uppercase;
         }
         .ti {
-          color: #e6edf3;
+          color: var(--sfvi-text, #e6edf3);
           font-size: 13px;
           font-weight: 500;
           white-space: nowrap;
@@ -138,14 +138,14 @@
           line-height: 1.35;
         }
         .su {
-          color: #45505f;
+          color: var(--sfvi-muted, #45505f);
           font-size: 11px;
           margin-top: 2px;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
         }
-        .bw { height: 2px; background: #1a1f2e; }
+        .bw { height: 2px; background: var(--sfvi-surface2, #1a1f2e); }
         .br {
           height: 100%;
           background: var(--ac, #34d399);
@@ -248,6 +248,25 @@
   }
   _s.toast = _sfviToast;
 
+  function _applyThemeVars(vars) {
+    if (!vars) return;
+    const root = document.documentElement;
+    const map = {
+      '--sfvi-bg':       vars['--bg'],
+      '--sfvi-surface':  vars['--surface'],
+      '--sfvi-surface2': vars['--surface2'],
+      '--sfvi-surface3': vars['--surface3'],
+      '--sfvi-border':   vars['--border'],
+      '--sfvi-border2':  vars['--border2'],
+      '--sfvi-text':     vars['--text'],
+      '--sfvi-text2':    vars['--text2'],
+      '--sfvi-text3':    vars['--text3'],
+      '--sfvi-muted':    vars['--muted'],
+      '--sfvi-accent':   vars['--accent'],
+    };
+    Object.entries(map).forEach(([k, v]) => { if (v) root.style.setProperty(k, v); });
+  }
+
   function _shortUrl(abs) {
     try {
       const u     = new URL(abs);
@@ -262,8 +281,12 @@
 
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return;
-    if (!ev.data || ev.data.type !== '__sfvi_hook_data__') return;
-    if (ev.data.apis) STATE.apis = ev.data.apis;
+    if (!ev.data) return;
+    if (ev.data.type === '__sfvi_hook_data__') {
+      if (ev.data.apis) STATE.apis = ev.data.apis;
+    } else if (ev.data.type === '__sfvi_theme__') {
+      _applyThemeVars(ev.data.vars);
+    }
   });
 
   window.postMessage({ type: '__sfvi_hook_ready__' }, location.origin);
