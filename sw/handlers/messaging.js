@@ -62,14 +62,12 @@ export function initMessaging() {
       const tabId = sender.tab?.id;
       switch (msg.type) {
 
-        case 'GET_API_RULES': sendResponse({ rules: await getApiRules() }); break;
-
-        case 'INJECT_HOOK': {
-          if (!tabId || (sender.tab && !fromExtensionPage)) { sendResponse({ ok: false }); break; }
-          try {
-            await chrome.scripting.executeScript({ target: { tabId }, files: ['page-hook.js'], world: 'MAIN' });
-            sendResponse({ ok: true });
-          } catch(e) { sendResponse({ ok: false, error: e.message }); }
+        case 'GET_API_RULES': {
+          const rules = await getApiRules();
+          if (tabId) {
+            try { await chrome.scripting.executeScript({ target: { tabId }, files: ['page-hook.js'], world: 'MAIN' }); } catch {}
+          }
+          sendResponse({ rules });
           break;
         }
 
@@ -82,7 +80,8 @@ export function initMessaging() {
         case 'EXPORT_RULES': sendResponse({ rules: await getRules() }); break;
 
         case 'IMPORT_RULES':
-          await saveRules(msg.rules.map(migrateRule)); await rebuildDNR();
+          await saveRules((msg.rules || []).map(migrateRule)); await rebuildDNR();
+          notifyRulesChanged(); await pushRulesToActiveTab();
           sendResponse({ ok: true }); break;
 
         case 'MERGE_RULES': {
@@ -99,6 +98,7 @@ export function initMessaging() {
             } else { merged.push(r); added++; }
           }
           await saveRules(merged); await rebuildDNR(); notifyRulesChanged();
+          await pushRulesToActiveTab();
           sendResponse({ ok: true, added, updated, skipped }); break;
         }
 
@@ -117,7 +117,8 @@ export function initMessaging() {
         case 'DELETE_RULE': {
           const rules = await getRules();
           await saveRules(rules.filter(r => r.id !== msg.id));
-          await rebuildDNR(); notifyRulesChanged(); sendResponse({ ok: true }); break;
+          await rebuildDNR(); notifyRulesChanged(); await pushRulesToActiveTab();
+          sendResponse({ ok: true }); break;
         }
 
         case 'TOGGLE_RULE': {

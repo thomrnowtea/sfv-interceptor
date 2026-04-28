@@ -1,6 +1,6 @@
 import { getRules } from '../core/rules.js';
 import { urlMatchesPair } from '../core/matcher.js';
-import { getScriptUrlsForPage, getOriginalText, originalCache, pendingOriginal } from '../cache/assets.js';
+import { getScriptUrlsForPage, getOriginalText, originalCache, pendingOriginal, clearHtmlCache } from '../cache/assets.js';
 import { setIcon } from './icons.js';
 
 export function initNavigation() {
@@ -9,8 +9,7 @@ export function initNavigation() {
     const pageUrl = details.url;
     if (!pageUrl || /^(chrome|about|devtools|chrome-extension):/.test(pageUrl)) return;
 
-    originalCache.clear();
-    pendingOriginal.clear();
+    clearHtmlCache();
 
     const [rules, scriptUrls] = await Promise.all([getRules(), getScriptUrlsForPage(pageUrl)]);
     const htmlRules = rules.filter(r => r.enabled !== false && r.resourceType === 'html');
@@ -106,7 +105,13 @@ export function initNavigation() {
             args: [modifyCode, staticBody, assetUrl, file, rule.name, rule.resourceSubtype || 'js'],
             func: async function(modifyCode, staticBody, assetUrl, file, ruleName, resType) {
               function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
-              function execViaBlob(code, label) {
+              function execViaBlob(code, label, isCss) {
+                if (isCss) {
+                  const s = document.createElement('style');
+                  s.textContent = code;
+                  (document.head || document.documentElement).appendChild(s);
+                  return;
+                }
                 const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
                 const blob = new Blob([src], { type: 'text/javascript' });
                 const url  = URL.createObjectURL(blob);
@@ -135,7 +140,7 @@ export function initNavigation() {
                 }
                 const changed = patched !== original;
                 if (changed) _t('📦', resType === 'css' ? 'CSS Patched' : 'JS Patched', ruleName, file + ' · ' + resType, '#fbbf24');
-                execViaBlob(patched, file);
+                execViaBlob(patched, file, resType === 'css');
               } catch(e) { console.error('[SFV-Interceptor] in-page fetch/blob error in', file, ':', e.message); }
             },
           });
@@ -153,7 +158,13 @@ export function initNavigation() {
           args: [original, modifyCode, staticBody, assetUrl, file, rule.name, rule.resourceSubtype || 'js'],
           func: function(original, modifyCode, staticBody, assetUrl, file, ruleName, resType) {
             function _t(i,sl,a,b,c){const s=Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);if(s?.toast)s.toast(i,sl,a,b,c);}
-            function execViaBlob(code, label) {
+            function execViaBlob(code, label, isCss) {
+              if (isCss) {
+                const s = document.createElement('style');
+                s.textContent = code;
+                (document.head || document.documentElement).appendChild(s);
+                return;
+              }
               const src  = code + '\n//# sourceURL=sfvi-patched/' + label;
               const blob = new Blob([src], { type: 'text/javascript' });
               const url  = URL.createObjectURL(blob);
@@ -175,7 +186,7 @@ export function initNavigation() {
             }
             const changed = patched !== original;
             if (changed) _t('📦', resType === 'css' ? 'CSS Patched' : 'JS Patched', ruleName, file + ' · ' + resType, '#fbbf24');
-            execViaBlob(patched, file);
+            execViaBlob(patched, file, resType === 'css');
           },
         });
         setIcon(tabId, true);

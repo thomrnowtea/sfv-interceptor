@@ -29,15 +29,16 @@
   const _NativeXHR   = _s.NativeXHR;
 
   if (_s.installed) {
-    window.postMessage({ type: '__sfvi_hook_ready__' }, location.origin);
     return;
   }
   _s.installed = true;
+  window.postMessage({ type: '__sfvi_hook_ready__' }, location.origin);
 
   // ── Stealth: Symbol keys for XHR instance state ───────────────────────────
   const _URL    = Symbol();
   const _METHOD = Symbol();
   const _HDRS   = Symbol();
+  const _ASYNC  = Symbol();
 
   // ── Stealth: Function.prototype.toString patch ────────────────────────────
   const _nativeToString = Function.prototype.toString;
@@ -160,6 +161,7 @@
 
       class SfviToast extends HTMLElement {
         connectedCallback() {
+          if (this.shadowRoot) return;
           const shadow = this.attachShadow({ mode: 'closed' });
 
           const sty = document.createElement('style');
@@ -224,7 +226,16 @@
     wrap.style.setProperty('background',      'transparent','important');
     wrap.style.setProperty('padding',         '0',          'important');
     wrap.style.setProperty('margin',          '0',          'important');
-    document.documentElement.appendChild(wrap);
+    if (document.documentElement) {
+      document.documentElement.appendChild(wrap);
+    } else {
+      // Retry when DOM is ready (document_start injection edge case)
+      const tryAppend = () => {
+        if (document.documentElement) document.documentElement.appendChild(wrap);
+        else requestAnimationFrame(tryAppend);
+      };
+      requestAnimationFrame(tryAppend);
+    }
 
     return function showToast(icon, statusLabel, title, sub, color, duration) {
       const el = document.createElement(TAG);
@@ -289,8 +300,6 @@
     }
   });
 
-  window.postMessage({ type: '__sfvi_hook_ready__' }, location.origin);
-
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   function toAbs(u) {
@@ -351,18 +360,25 @@
   // ═══════════════════════════════════════════════════════════════════════════
 
   const _fetchOverride = async function fetch(input, init) {
-    let url, method, reqBody;
-    if (input instanceof Request) {
-      url     = input.url;
-      method  = (init?.method || input.method || 'GET').toUpperCase();
+    let url, method, reqBody, requestHeaders = {};
+    if (input && typeof input === 'object') {
+      url    = input.url || input.href || '';
+      method = (init?.method || input.method || 'GET').toUpperCase();
       reqBody = init?.body ?? null;
       if (!reqBody && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
         try { reqBody = await input.clone().text(); } catch {}
       }
+      try {
+        if (input.headers) input.headers.forEach((v, k) => requestHeaders[k] = v);
+      } catch {}
     } else {
-      url     = typeof input === 'string' ? input : (input?.url ?? '');
+      url     = typeof input === 'string' ? input : (input?.url ?? input?.href ?? '');
       method  = (init?.method || 'GET').toUpperCase();
       reqBody = init?.body ?? null;
+      if (init?.headers) {
+        if (init.headers instanceof Headers) init.headers.forEach((v, k) => requestHeaders[k] = v);
+        else if (typeof init.headers === 'object') Object.assign(requestHeaders, init.headers);
+      }
     }
     const abs = toAbs(url);
 
@@ -380,7 +396,6 @@
     if (rule.delay > 0) await new Promise(r => setTimeout(r, rule.delay));
 
     if (rule.responseType !== 'dynamic') {
-      try { await _nativeFetch(input, init); } catch {}
       _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       return buildResponse(rule, rule.responseBody || '', abs);
     }
@@ -395,7 +410,7 @@
         response:       origText,
         responseJSON:   origJSON,
         responseType:   origResp.headers.get('content-type') || '',
-        requestHeaders: {},
+        requestHeaders,
         requestData:    reqBody,
       });
       _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
@@ -420,6 +435,7 @@
     this[_URL]    = toAbs(String(url));
     this[_METHOD] = (method || 'GET').toUpperCase();
     this[_HDRS]   = {};
+    this[_ASYNC]  = async !== false;
     for (const k of ['readyState', 'status', 'statusText', 'responseText', 'response', 'responseURL']) {
       try { delete this[k]; } catch {}
     }
@@ -452,6 +468,7 @@
     const delay      = rule.delay > 0 ? rule.delay : 0;
     const statusCode = rule.statusCode || '200';
     const title      = reqMethod + ' · ' + _shortUrl(reqUrl);
+    const isSync     = this[_ASYNC] === false;
 
     function dispatchMock(mockBody) {
       const st = parseInt(rule.statusCode) || 200;
@@ -470,17 +487,24 @@
           try { xhr[k] = v; } catch {}
         }
       }
-      setTimeout(() => {
+      const fire = () => {
         xhr.dispatchEvent(new Event('readystatechange'));
         if (typeof xhr.onreadystatechange === 'function') xhr.onreadystatechange();
         xhr.dispatchEvent(new ProgressEvent('load'));
         xhr.dispatchEvent(new ProgressEvent('loadend'));
         if (typeof xhr.onload    === 'function') xhr.onload(new ProgressEvent('load'));
         if (typeof xhr.onloadend === 'function') xhr.onloadend(new ProgressEvent('loadend'));
-      }, delay);
+      };
+      if (isSync) fire();
+      else setTimeout(fire, delay);
     }
 
     if (rule.responseType !== 'dynamic') {
+      if (isSync) {
+        dispatchMock(rule.responseBody || '');
+        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
+        return;
+      }
       const realXhr = new _NativeXHR();
       _protoOpen.call(realXhr, reqMethod, reqUrl, true);
       Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
@@ -491,8 +515,38 @@
     }
 
     const realXhr = new _NativeXHR();
-    _protoOpen.call(realXhr, reqMethod, reqUrl, true);
+    _protoOpen.call(realXhr, reqMethod, reqUrl, !isSync);
     Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
+    try {
+      ['responseType', 'withCredentials', 'timeout'].forEach(p => {
+        if (xhr[p] != null) realXhr[p] = xhr[p];
+      });
+    } catch {}
+
+    if (isSync) {
+      _protoSend.call(realXhr, body);
+      let result = rule.responseBody || '';
+      try {
+        const origText = realXhr.responseText;
+        let origJSON = null;
+        try { origJSON = JSON.parse(origText); } catch {}
+        result = runModifyResponse(rule, {
+          method:         reqMethod,
+          url:            reqUrl,
+          response:       origText,
+          responseJSON:   origJSON,
+          responseType:   realXhr.getResponseHeader('content-type') || '',
+          requestHeaders: reqHeaders,
+          requestData:    body,
+        });
+        dispatchMock(result);
+        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
+      } catch {
+        dispatchMock(rule.responseBody || '');
+        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
+      }
+      return;
+    }
 
     realXhr.onload = () => {
       try {

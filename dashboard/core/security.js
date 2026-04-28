@@ -318,12 +318,11 @@ export function showAllRisksPopup(highlightIds) {
     </div>`;
 
   document.body.appendChild(popup);
-  const close = () => popup.remove();
+  const close = () => { document.removeEventListener('keydown', onKey); popup.remove(); };
+  function onKey(e) { if (e.key === 'Escape') close(); }
   document.getElementById('sfvi-allrisks-close').addEventListener('click', close);
   document.getElementById('sfvi-allrisks-bd').addEventListener('click', close);
-  document.addEventListener('keydown', function h(e) {
-    if (e.key === 'Escape') { document.removeEventListener('keydown', h); close(); }
-  });
+  document.addEventListener('keydown', onKey);
 }
 
 export function updateRiskBar() {
@@ -529,15 +528,14 @@ export function showSecurityWarning(risks) {
       saveBtn.style.cursor     = acceptBox.checked ? 'pointer' : 'not-allowed';
       saveBtn.style.background = acceptBox.checked ? '#3b0f0f' : '#1a0a0a';
     });
-    saveBtn.addEventListener('click', () => { modal.remove(); resolve(true); });
-    const dismiss = () => { modal.remove(); resolve(false); };
+    function onKey(e) { if (e.key === 'Escape') dismiss(); }
+    const dismiss = () => { document.removeEventListener('keydown', onKey); modal.remove(); resolve(false); };
+    saveBtn.addEventListener('click', () => { document.removeEventListener('keydown', onKey); modal.remove(); resolve(true); });
     cancelBtn.addEventListener('click', dismiss);
     cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.borderColor = getCSSVar('--text3'); cancelBtn.style.color = getCSSVar('--text2'); });
     cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.borderColor = _bdr2; cancelBtn.style.color = _mutedTxt; });
     backdrop.addEventListener('click', dismiss);
-    document.addEventListener('keydown', function h(e) {
-      if (e.key === 'Escape') { document.removeEventListener('keydown', h); dismiss(); }
-    });
+    document.addEventListener('keydown', onKey);
     cancelBtn.focus();
   });
 }

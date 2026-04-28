@@ -9,6 +9,10 @@ export function clearAssetCaches() {
   originalCache.clear(); htmlCache.clear(); pendingHtml.clear(); pendingOriginal.clear();
 }
 
+export function clearHtmlCache() {
+  htmlCache.clear(); pendingHtml.clear();
+}
+
 export async function getScriptUrlsForPage(pageUrl) {
   let cacheKey;
   try { const u = new URL(pageUrl); cacheKey = u.origin + u.pathname; } catch { return []; }
@@ -36,9 +40,7 @@ export async function getOriginalText(assetUrl, referer) {
   if (pendingOriginal.has(assetUrl)) return pendingOriginal.get(assetUrl);
   const promise = (async () => {
     try {
-      const headers = { 'Cache-Control': 'no-store' };
-      if (referer) headers['Referer'] = referer;
-      const r = await fetch(assetUrl, { cache: 'no-store', headers });
+      const r = await fetch(assetUrl, { cache: 'no-store' });
       const ct = r.headers.get('content-type') || '';
       const text = await r.text();
       const first = text.trimStart()[0];

@@ -11,8 +11,6 @@
 
   if (!data?.rules?.length) return;
 
-  try { await chrome.runtime.sendMessage({ type: 'INJECT_HOOK' }); } catch {}
-
   async function sendTheme() {
     try {
       const td = await chrome.storage.local.get('sfvi_theme_vars');
@@ -37,17 +35,21 @@ window.addEventListener('__sfvi_applied__', () => {
   const now = Date.now();
   if (now - _lastRuleApplied < 500) return;
   _lastRuleApplied = now;
-  chrome.runtime.sendMessage({ type: 'RULE_APPLIED' }).catch(() => {});
+  try { chrome.runtime.sendMessage({ type: 'RULE_APPLIED' }).catch(() => {}); } catch {}
 });
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === '__sfvi_push_rules__') {
-    window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: msg.apis }, location.origin);
-  }
-});
+try {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === '__sfvi_push_rules__') {
+      window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: msg.apis }, location.origin);
+    }
+  });
+} catch {}
 
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.sfvi_theme_vars) {
-    window.postMessage({ type: '__sfvi_theme__', vars: changes.sfvi_theme_vars.newValue }, location.origin);
-  }
-});
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes.sfvi_theme_vars) {
+      window.postMessage({ type: '__sfvi_theme__', vars: changes.sfvi_theme_vars.newValue }, location.origin);
+    }
+  });
+} catch {}
