@@ -55,7 +55,7 @@
   });
 
   // ── Toast notification system ─────────────────────────────────────────────
-  // Pattern from Requestly: customElements.define + closed Shadow DOM +
+  // Pattern: customElements.define + closed Shadow DOM +
   // :host CSS for position:fixed + CSS transition triggered by class toggle.
   function _initToasts() {
     const TAG = 'sfvi-t';
@@ -199,7 +199,7 @@
           su.textContent = this.getAttribute('su') || '';
           br.style.animationDuration = ms + 'ms';
 
-          // Requestly pattern: small delay then add class to trigger CSS transition
+           // Pattern: small delay then add class to trigger CSS transition
           setTimeout(() => this.classList.add('sfvi-in'), 50);
 
           setTimeout(() => {

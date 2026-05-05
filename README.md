@@ -33,7 +33,7 @@ SFV Interceptor is a Manifest V3 Chrome extension that lets developers intercept
 - Drag-to-reorder rules with custom sort order
 - Sort rules by name or resource type
 - Bulk select, export, and delete rules
-- Import/export rules as JSON — compatible with Requestly export format
+- Import/export rules as JSON — standard format
 - Import from a local file or a remote URL
 
 ### Editor & UI
