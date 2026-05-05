@@ -19,10 +19,10 @@ export async function getApiRules() {
         name:          rule.name          || '',
         regex:         regexFilter,
         method:        pair.method        || '',
-        responseType:  pair.responseType  || 'static',
-        responseBody:  pair.responseBody  || '',
-        statusCode:    pair.statusCode    || 200,
-        delay:         parseInt(pair.delay) || 0,
+        responseType:  pair.responseType  || rule.responseType  || 'static',
+        responseBody:  pair.responseBody  || rule.responseBody  || '',
+        statusCode:    pair.statusCode    || rule.statusCode    || 200,
+        delay:         parseInt(pair.delay || rule.delay) || 0,
         gqlOperation:  pair.gqlOperation  || '',
         customHeaders: rule.customHeaders || '',
       });
@@ -44,10 +44,10 @@ async function pushRulesToActiveTab(changedRule) {
       const tabMatches = (changedRule.pairs || []).some(pair => urlMatchesPair(tab.url, pair));
       if (!tabMatches) { if (!apiRules.length) setIcon(tab.id, false); return; }
     }
-    try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['page-hook.js'], world: 'MAIN' }); } catch {}
+    try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ['page-hook.js'], world: 'MAIN' }); } catch {}
     try {
       await chrome.scripting.executeScript({
-        target: { tabId: tab.id }, world: 'MAIN',
+        target: { tabId: tab.id, allFrames: true }, world: 'MAIN',
         args: [apiRules],
         func: (apis) => {
           const s = Reflect.ownKeys(window).reduce((f, k) => {
@@ -78,7 +78,8 @@ export function initMessaging() {
         case 'GET_API_RULES': {
           const rules = await getApiRules();
           if (tabId) {
-            try { await chrome.scripting.executeScript({ target: { tabId }, files: ['page-hook.js'], world: 'MAIN' }); } catch {}
+            const frameId = sender.frameId ?? 0;
+            try { await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, files: ['page-hook.js'], world: 'MAIN' }); } catch {}
           }
           sendResponse({ rules });
           break;

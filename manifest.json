@@ -44,10 +44,15 @@
       "all_frames": true
     }
   ],
+  "sandbox": {
+    "pages": ["sandbox/sandbox.html"]
+  },
   "web_accessible_resources": [
     {
       "resources": [
         "page-hook.js",
+        "sandbox/sandbox.html",
+        "sandbox/sandbox.js",
         "icons/icon16g.png",
         "icons/icon48g.png",
         "icons/icon128g.png"

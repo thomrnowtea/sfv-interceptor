@@ -5,7 +5,17 @@ export function migrateRule(rule) {
   if (rule.resourceType === 'html' && !rule.resourceSubtype) {
     rule = { ...rule, resourceSubtype: 'html' };
   }
-  if (Array.isArray(rule.pairs) && rule.pairs.length) return rule;
+  if (Array.isArray(rule.pairs) && rule.pairs.length) {
+    const props = ['responseType', 'responseBody', 'statusCode', 'delay'];
+    rule.pairs = rule.pairs.map(p => {
+      const merged = { ...p };
+      for (const prop of props) {
+        if (merged[prop] == null && rule[prop] != null) merged[prop] = rule[prop];
+      }
+      return merged;
+    });
+    return rule;
+  }
   return {
     id:           rule.id,
     name:         rule.name,

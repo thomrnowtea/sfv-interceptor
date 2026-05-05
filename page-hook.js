@@ -28,11 +28,13 @@
   const _nativeFetch = _s.nativeFetch;
   const _NativeXHR   = _s.NativeXHR;
 
+  const _origin = location.origin || '*';
   if (_s.installed) {
+    window.postMessage({ type: '__sfvi_hook_ready__' }, _origin);
     return;
   }
   _s.installed = true;
-  window.postMessage({ type: '__sfvi_hook_ready__' }, location.origin);
+  window.postMessage({ type: '__sfvi_hook_ready__' }, _origin);
 
   // ── Stealth: Symbol keys for XHR instance state ───────────────────────────
   const _URL    = Symbol();
@@ -302,6 +304,17 @@
   }
   _s.updateApis = updateApis;
 
+  function _waitForSandbox() {
+    return new Promise((resolve) => {
+      function check() {
+        const iframe = document.getElementById('__sfvi_sandbox__');
+        if (iframe && iframe.contentWindow) resolve();
+        else setTimeout(check, 50);
+      }
+      check();
+    });
+  }
+
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return;
     if (!ev.data) return;
@@ -369,6 +382,49 @@
     return res == null ? '' : (typeof res === 'string' ? res : JSON.stringify(res));
   }
 
+  // Remote execution via sandboxed iframe (bypasses iframe CSP)
+  async function runModifyResponseRemote(rule, args) {
+    await _waitForSandbox();
+    return new Promise((resolve, reject) => {
+      const id = '__sfvi_sandbox_' + Date.now() + '_' + Math.random();
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        reject(new Error('runModifyResponseRemote timeout'));
+      }, 5000);
+
+      function handler(ev) {
+        if (!ev.data || ev.data.type !== '__sfvi_sandbox_result__') return;
+        if (ev.data.id !== id) return;
+        clearTimeout(timeout);
+        window.removeEventListener('message', handler);
+        if (ev.data.error) reject(new Error(ev.data.error));
+        else resolve(ev.data.result);
+      }
+
+      window.addEventListener('message', handler);
+
+      const iframe = document.getElementById('__sfvi_sandbox__');
+      iframe.contentWindow.postMessage({
+        type: '__sfvi_sandbox_exec__',
+        id,
+        code: rule.responseBody,
+        args,
+      }, '*');
+    });
+  }
+
+  async function runModifyResponseSafe(rule, args) {
+    try {
+      return runModifyResponse(rule, args);
+    } catch (err) {
+      const isCsp = err instanceof EvalError || /CSP|Content Security Policy|unsafe-eval|evaluating a string as javascript/i.test(err.message);
+      if (isCsp) {
+        return await runModifyResponseRemote(rule, args);
+      }
+      throw err;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // FETCH OVERRIDE
   // ═══════════════════════════════════════════════════════════════════════════
@@ -419,7 +475,7 @@
       const origText = await origResp.text();
       let   origJSON = null;
       try { origJSON = JSON.parse(origText); } catch {}
-      const body = runModifyResponse(rule, {
+      const body = await runModifyResponseSafe(rule, {
         method, url: abs,
         response:       origText,
         responseJSON:   origJSON,
@@ -429,7 +485,7 @@
       });
       _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
       return buildResponse(rule, body, abs);
-    } catch {
+    } catch (err) {
       _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       return buildResponse(rule, rule.responseBody || '', abs);
     }
@@ -456,18 +512,19 @@
     return _protoOpen.call(this, method, url, async, user, pass);
   };
   _nativables.add(_xhrOpen);
-  XMLHttpRequest.prototype.open = _xhrOpen;
+  try { XMLHttpRequest.prototype.open = _xhrOpen; } catch { return; }
 
   const _xhrSetH = function setRequestHeader(name, value) {
     if (this[_HDRS]) this[_HDRS][name] = value;
     return _protoSetH.call(this, name, value);
   };
   _nativables.add(_xhrSetH);
-  XMLHttpRequest.prototype.setRequestHeader = _xhrSetH;
+  try { XMLHttpRequest.prototype.setRequestHeader = _xhrSetH; } catch {}
 
   const _xhrSend = function send(body) {
+    const url = this[_URL] || '';
     const rule = STATE.apis.find(r =>
-      matchesRule(this[_URL] || '', r) &&
+      matchesRule(url, r) &&
       (!r.method || r.method === this[_METHOD]) &&
       matchesGqlOperation(r, body)
     );
@@ -555,19 +612,19 @@
         });
         dispatchMock(result);
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
-      } catch {
+      } catch (err) {
         dispatchMock(rule.responseBody || '');
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       }
       return;
     }
 
-    realXhr.onload = () => {
+    realXhr.onload = async () => {
       try {
         const origText = realXhr.responseText;
         let   origJSON = null;
         try { origJSON = JSON.parse(origText); } catch {}
-        const result = runModifyResponse(rule, {
+        const result = await runModifyResponseSafe(rule, {
           method:         reqMethod,
           url:            reqUrl,
           response:       origText,
@@ -578,7 +635,7 @@
         });
         dispatchMock(result);
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
-      } catch {
+      } catch (err) {
         dispatchMock(rule.responseBody || '');
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       }
@@ -587,6 +644,6 @@
     _protoSend.call(realXhr, body);
   };
   _nativables.add(_xhrSend);
-  XMLHttpRequest.prototype.send = _xhrSend;
+  try { XMLHttpRequest.prototype.send = _xhrSend; } catch {}
 
 })();

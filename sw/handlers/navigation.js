@@ -1,4 +1,5 @@
 import { getRules } from '../core/rules.js';
+import { getApiRules } from './messaging.js';
 import { urlMatchesPair } from '../core/matcher.js';
 import { getScriptUrlsForPage, getOriginalText, clearHtmlCache } from '../cache/assets.js';
 import { setIcon } from './icons.js';
@@ -30,9 +31,25 @@ export function initNavigation() {
   });
 
   chrome.webNavigation.onCommitted.addListener(async (details) => {
-    if (details.frameId !== 0) return;
     const pageUrl = details.url;
     if (!pageUrl || /^(chrome|about|devtools|chrome-extension):/.test(pageUrl)) return;
+
+    if (details.frameId !== 0) {
+      const apiRules = await getApiRules();
+      if (!apiRules.length) return;
+      const { tabId, frameId } = details;
+      try {
+        await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, files: ['page-hook.js'], world: 'MAIN', injectImmediately: true });
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] }, world: 'MAIN', injectImmediately: true, args: [apiRules],
+          func: (apis) => {
+            const s = Reflect.ownKeys(window).reduce((f,k)=>{if(f)return f;try{return(typeof k==='symbol'&&window[k]?._sfvi===1)?window[k]:null}catch{return null}},null);
+            if (s?.updateApis) s.updateApis(apis);
+          },
+        });
+      } catch {}
+      return;
+    }
 
     const tabId = details.tabId;
     const [rules, scriptUrls] = await Promise.all([getRules(), getScriptUrlsForPage(pageUrl)]);
