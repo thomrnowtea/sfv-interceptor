@@ -11,8 +11,9 @@ export function initRuleEditor({ renderNav, refresh, selectRule, showEmpty, upda
 }
 
 export function buildPairRow(pair, idx) {
-  const op = pair.urlOperator || 'Contains';
-  const cs = pair.caseSensitive || false;
+  const op  = pair.urlOperator || 'Contains';
+  const cs  = pair.caseSensitive || false;
+  const hasRedirect = !!(pair.redirectUrl);
   return `
     <div class="pair-row" data-pair-idx="${idx}">
       <div class="pair-input-box">
@@ -35,13 +36,19 @@ export function buildPairRow(pair, idx) {
           <option value="PATCH"  ${pair.method === 'PATCH'  ? 'selected' : ''}>PATCH</option>
           <option value="DELETE" ${pair.method === 'DELETE' ? 'selected' : ''}>DELETE</option>
         </select>
-        <button type="button" class="pair-cs" data-idx="${idx}" data-cs="${cs}" title="${cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)'}">
-          Aa
-        </button>
+        <button type="button" class="pair-cs" data-idx="${idx}" data-cs="${cs}" title="${cs ? 'Case sensitive (click to disable)' : 'Case insensitive (click to enable)'}">Aa</button>
+        <button type="button" class="pair-redirect-btn ${hasRedirect ? 'active' : ''}" data-idx="${idx}" title="Redirect URL">↪</button>
         ${idx > 0
           ? `<button type="button" class="pair-remove" data-idx="${idx}" title="Remove">✕</button>`
           : ''
         }
+      </div>
+      <div class="pair-redirect-wrap" ${hasRedirect ? '' : 'style="display:none"'}>
+        <span class="redirect-label">↪ redirect to</span>
+        <input type="text" class="pair-redirect-url" data-idx="${idx}"
+               value="${esc(pair.redirectUrl || '')}"
+               placeholder="https://other-api.com/same/path"
+               autocomplete="off" spellcheck="false">
       </div>
     </div>
   `;
@@ -50,7 +57,6 @@ export function buildPairRow(pair, idx) {
 export function buildEditorHTML(rule) {
   const resType  = rule.resourceType || 'rest';
   const resSub   = rule.resourceSubtype || 'html';
-  const respType = rule.pairs?.[0]?.responseType || rule.responseType || 'static';
   const isNew    = !rule.id;
 
   const defStatic = resType === 'html'
@@ -59,10 +65,14 @@ export function buildEditorHTML(rule) {
   const defDynamic = resType === 'html'
     ? `function modifyResponse(args) {\n  const { url, response } = args;\n  // response = full source text of the JS/CSS/HTML file\n  // Return the modified string\n  return response;\n}`
     : `function modifyResponse(args) {\n  const { method, url, response, responseType, requestHeaders, requestData, responseJSON } = args;\n  return { ...responseJSON, mocked: true };\n}`;
+  const defReqModifier = `function modifyRequest(args) {\n  const { method, url, requestData, requestJSON, requestHeaders } = args;\n  return requestJSON;\n}`;
 
-  const pair0       = rule.pairs?.[0] || {};
-  const staticBody  = (pair0.responseBody && respType === 'static')  ? pair0.responseBody : defStatic;
-  const dynamicBody = (pair0.responseBody && respType === 'dynamic') ? pair0.responseBody : defDynamic;
+  const respType      = rule.response?.type || 'static';
+  const respStatic  = respType    === 'static'  ? (rule.response?.body || '') : '';
+  const respDynamic = respType    === 'dynamic' ? (rule.response?.body || '') : '';
+  const reqBodyType = rule.request?.type || 'static';
+  const reqStatic   = reqBodyType === 'static'  ? (rule.request?.body || '') : '';
+  const reqDynamic  = reqBodyType === 'dynamic' ? (rule.request?.body || '') : '';
 
   return `
 <div class="main-header ${rule.enabled !== false ? 'is-active' : 'is-inactive'} ${hrClass(rule.resourceType || 'rest', rule.resourceSubtype)}" id="editor-header">
@@ -166,6 +176,47 @@ export function buildEditorHTML(rule) {
                  value="${esc((rule.pairs && rule.pairs[0] && rule.pairs[0].gqlOperation) || '')}">
         </div>
       </div>
+
+      <div class="field" style="margin-top:10px">
+        <label>Request Body <span class="label-hint">(optional)</span></label>
+        <div class="req-type-tabs">
+          <button type="button" class="req-tab ${reqBodyType === 'static'  ? 'active' : ''}" data-req-body="static">Static</button>
+          <button type="button" class="req-tab ${reqBodyType === 'dynamic' ? 'active' : ''}" data-req-body="dynamic">Dynamic (JS)</button>
+        </div>
+      </div>
+
+      <div id="req-static-body-field" ${reqBodyType !== 'static' ? 'style="display:none"' : ''}>
+        <div class="editor-toolbar">
+          <span class="editor-lang-badge">JSON / TEXT</span>
+          <div class="editor-actions">
+            <button type="button" class="btn-tpl" id="tpl-req-static">Template</button>
+            <button type="button" class="btn-format" id="fmt-req-static" title="Format code">⇥ Format</button>
+          </div>
+        </div>
+        <textarea id="f-req-body-static" spellcheck="false" style="display:none">${esc(reqStatic)}</textarea>
+      </div>
+
+      <div id="req-dynamic-body-field" ${reqBodyType !== 'dynamic' ? 'style="display:none"' : ''}>
+        <div class="code-hint" style="margin-bottom:10px">
+          <b>args.requestData</b> (string) · <b>args.requestJSON</b> (object, if JSON body) · <b>args.url</b> · <b>args.method</b> · <b>args.requestHeaders</b><br>
+          Return a <b>string</b> or <b>object</b> to replace the outgoing request body. Return <code>undefined</code> to leave it unchanged.
+        </div>
+        <div class="editor-toolbar">
+          <span class="editor-lang-badge">JavaScript</span>
+          <div class="editor-actions">
+            <button type="button" class="btn-tpl" id="tpl-req-modifier">Template</button>
+            <button type="button" class="btn-format" id="fmt-req-modifier" title="Format code">⇥ Format</button>
+          </div>
+        </div>
+        <textarea id="f-req-modifier" spellcheck="false" style="display:none">${esc(reqDynamic)}</textarea>
+      </div>
+
+      <div class="field">
+        <label>Custom Request Headers <span class="label-hint">(JSON, optional)</span></label>
+        <textarea id="f-req-headers" rows="2" placeholder='{"Authorization": "Bearer token"}'
+                  spellcheck="false">${esc(rule.request?.customHeaders || '')}</textarea>
+        <div class="hint">Overwrites existing request headers with matching names</div>
+      </div>
     </div>
   </div>
 
@@ -179,13 +230,13 @@ export function buildEditorHTML(rule) {
         <div class="field">
           <label>Status Code</label>
           <input type="number" id="f-status" placeholder="200"
-                 value="${esc((rule.pairs?.[0]?.statusCode) || '')}" min="100" max="599">
+                 value="${esc(rule.response?.statusCode || '')}" min="100" max="599">
           <div class="hint">Leave empty → 200 (or original)</div>
         </div>
         <div class="field">
           <label>Delay (ms)</label>
           <input type="number" id="f-delay" placeholder="0"
-                 value="${esc((rule.pairs?.[0]?.delay) || '')}" min="0">
+                 value="${esc(rule.response?.delay || '')}" min="0">
           <div class="hint">Simulate latency</div>
         </div>
       </div>
@@ -202,10 +253,11 @@ export function buildEditorHTML(rule) {
         <div class="editor-toolbar">
           <span class="editor-lang-badge">JSON / TEXT</span>
           <div class="editor-actions">
+            <button type="button" class="btn-tpl" id="tpl-static">Template</button>
             <button type="button" class="btn-format" id="fmt-static" title="Format code">⇥ Format</button>
           </div>
         </div>
-        <textarea id="f-body-static" spellcheck="false" style="display:none">${esc(staticBody)}</textarea>
+        <textarea id="f-body-static" spellcheck="false" style="display:none">${esc(respStatic)}</textarea>
       </div>
 
       <div id="dynamic-body-field" ${respType !== 'dynamic' ? 'style="display:none"' : ''}>
@@ -217,17 +269,18 @@ export function buildEditorHTML(rule) {
         <div class="editor-toolbar" style="margin-top:10px">
           <span class="editor-lang-badge">JavaScript</span>
           <div class="editor-actions">
+            <button type="button" class="btn-tpl" id="tpl-dynamic">Template</button>
             <button type="button" class="btn-format" id="fmt-dynamic" title="Format code">⇥ Format</button>
           </div>
         </div>
-        <textarea id="f-body-dynamic" spellcheck="false" style="display:none">${esc(dynamicBody)}</textarea>
+        <textarea id="f-body-dynamic" spellcheck="false" style="display:none">${esc(respDynamic)}</textarea>
         <div id="sfvi-risk-bar" style="display:none"></div>
       </div>
 
       <div class="field">
         <label>Custom Response Headers <span class="label-hint">(JSON, optional)</span></label>
         <textarea id="f-headers" rows="2" placeholder='{"X-Mocked": "true"}'
-                  spellcheck="false">${esc(rule.customHeaders || '')}</textarea>
+                  spellcheck="false">${esc(rule.response?.customHeaders || '')}</textarea>
       </div>
     </div>
   </div>
@@ -247,9 +300,11 @@ export function buildEditorHTML(rule) {
 }
 
 export async function bindEditorEvents(rule, isNew = false) {
-  let currentResType  = rule.resourceType || 'rest';
-  let currentResSub   = rule.resourceSubtype || 'html';
-  let currentRespType = rule.pairs?.[0]?.responseType || rule.responseType || 'static';
+  let currentResType    = rule.resourceType || 'rest';
+  let currentResSub     = rule.resourceSubtype || 'html';
+  let currentRespType    = rule.response?.type || 'static';
+  const defReqModifier   = `function modifyRequest(args) {\n  const { method, url, requestData, requestJSON, requestHeaders } = args;\n  return requestJSON;\n}`;
+  let currentReqBodyType = rule.request?.type || 'static';
 
   let isDirty = !!(!rule.id);
   const snapshots = {
@@ -264,12 +319,17 @@ export async function bindEditorEvents(rule, isNew = false) {
       urlOperator:   p.urlOperator || 'Contains',
       method:        p.method || '',
       caseSensitive: p.caseSensitive || false,
+      redirectUrl:   p.redirectUrl || '',
     }))),
-    body:        (rule.pairs?.[0]?.responseBody) || '',
-    status:      String((rule.pairs?.[0]?.statusCode) || ''),
-    delay:       String((rule.pairs?.[0]?.delay) || 0),
-    description: rule.description || '',
-    headers:     rule.customHeaders || '',
+    body:          rule.response?.body          || '',
+    status:        String(rule.response?.statusCode || ''),
+    delay:         String(rule.response?.delay  || 0),
+    description:   rule.description             || '',
+    headers:       rule.response?.customHeaders || '',
+    reqBodyType:   currentReqBodyType,
+    reqBody:       currentReqBodyType === 'static'  ? (rule.request?.body || '') : '',
+    reqDynamic:    currentReqBodyType === 'dynamic' ? (rule.request?.body || '') : '',
+    reqHeaders:    rule.request?.customHeaders  || '',
   };
 
   function setDirty(dirty) {
@@ -301,6 +361,7 @@ export async function bindEditorEvents(rule, isNew = false) {
       urlOperator:   row.querySelector('.pair-operator')?.value || 'Contains',
       method:        row.querySelector('.pair-method')?.value || '',
       caseSensitive: row.querySelector('.pair-cs')?.dataset.cs === 'true',
+      redirectUrl:   row.querySelector('.pair-redirect-url')?.value.trim() || '',
     }));
   }
   function checkDirty() {
@@ -309,27 +370,47 @@ export async function bindEditorEvents(rule, isNew = false) {
     const curEnabled = document.getElementById('f-enabled')?.checked ?? true;
     const curStatus  = String(document.getElementById('f-status')?.value || '');
     const curDelay   = String(parseInt(document.getElementById('f-delay')?.value) || 0);
-    const curBody    = getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static');
-    const curPairs   = JSON.stringify(getPairsFromDOM());
-    const curDesc    = document.getElementById('f-description')?.value || '';
-    const curHeaders = document.getElementById('f-headers')?.value || '';
+    const curBody       = getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static');
+    const curPairs      = JSON.stringify(getPairsFromDOM());
+    const curDesc        = document.getElementById('f-description')?.value || '';
+    const curHeaders     = document.getElementById('f-headers')?.value || '';
+    const curReqBody     = currentReqBodyType === 'static'  ? getEditorValue('f-req-body-static') : snapshots.reqBody;
+    const curReqDynamic  = currentReqBodyType === 'dynamic' ? getEditorValue('f-req-modifier')    : snapshots.reqDynamic;
+    const curReqHeaders  = document.getElementById('f-req-headers')?.value || '';
     const changed =
       curName    !== snapshots.name    ||
       curEnabled !== snapshots.enabled ||
-      currentResType  !== snapshots.resType  ||
-      currentResSub   !== snapshots.resSub   ||
-      currentRespType !== snapshots.respType ||
+      currentResType    !== snapshots.resType    ||
+      currentResSub     !== snapshots.resSub     ||
+      currentRespType   !== snapshots.respType   ||
+      currentReqBodyType !== snapshots.reqBodyType ||
       curPairs   !== snapshots.pairs   ||
       curBody    !== snapshots.body    ||
       curStatus  !== snapshots.status  ||
       curDelay   !== snapshots.delay   ||
       curDesc    !== snapshots.description ||
-      curHeaders !== snapshots.headers;
+      curHeaders !== snapshots.headers ||
+      curReqBody     !== snapshots.reqBody     ||
+      curReqDynamic  !== snapshots.reqDynamic  ||
+      curReqHeaders  !== snapshots.reqHeaders;
     setDirty(changed);
   }
   function wirePairDirty() {
     document.querySelectorAll('.pair-url').forEach(el => el.addEventListener('input', checkDirty));
+    document.querySelectorAll('.pair-redirect-url').forEach(el => el.addEventListener('input', checkDirty));
     document.querySelectorAll('.pair-operator, .pair-method').forEach(el => el.addEventListener('change', checkDirty));
+    document.querySelectorAll('.pair-redirect-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const row      = btn.closest('.pair-row');
+        const wrap     = row.querySelector('.pair-redirect-wrap');
+        const inp      = row.querySelector('.pair-redirect-url');
+        const willOpen = wrap.style.display === 'none';
+        wrap.style.display = willOpen ? '' : 'none';
+        btn.classList.toggle('active', willOpen);
+        if (willOpen) inp.focus();
+        checkDirty();
+      });
+    });
     document.querySelectorAll('.pair-cs').forEach(btn => {
       const idx = parseInt(btn.dataset.idx);
       btn.dataset.cs = String(pairData[idx]?.caseSensitive || false);
@@ -348,6 +429,7 @@ export async function bindEditorEvents(rule, isNew = false) {
     document.getElementById('f-delay')?.addEventListener('input', checkDirty);
     document.getElementById('f-description')?.addEventListener('input', checkDirty);
     document.getElementById('f-headers')?.addEventListener('input', checkDirty);
+    document.getElementById('f-req-headers')?.addEventListener('input', checkDirty);
     document.getElementById('f-body-static')?.addEventListener('input', checkDirty);
     document.getElementById('f-body-dynamic')?.addEventListener('input', checkDirty);
     wirePairDirty();
@@ -448,9 +530,9 @@ export async function bindEditorEvents(rule, isNew = false) {
     });
   });
 
-  document.querySelectorAll('.resp-tab').forEach(tab => {
+  document.querySelectorAll('.response-type-tabs .resp-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.resp-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.response-type-tabs .resp-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       currentRespType = tab.dataset.resp;
       document.getElementById('static-body-field').style.display  = currentRespType === 'static'  ? '' : 'none';
@@ -460,11 +542,26 @@ export async function bindEditorEvents(rule, isNew = false) {
     });
   });
 
-  const sv = document.getElementById('f-body-static')?.value  || '';
-  const dv = document.getElementById('f-body-dynamic')?.value || '';
+  document.querySelectorAll('.req-type-tabs .req-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.req-type-tabs .req-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentReqBodyType = tab.dataset.reqBody;
+      document.getElementById('req-static-body-field').style.display  = currentReqBodyType === 'static'  ? '' : 'none';
+      document.getElementById('req-dynamic-body-field').style.display = currentReqBodyType === 'dynamic' ? '' : 'none';
+      checkDirty();
+    });
+  });
+
+  const sv  = document.getElementById('f-body-static')?.value    || '';
+  const dv  = document.getElementById('f-body-dynamic')?.value   || '';
+  const rv  = document.getElementById('f-req-modifier')?.value   || '';
+  const rsv = document.getElementById('f-req-body-static')?.value || '';
   let cmReady = false;
-  mountEditor('f-body-static',  sv, () => { if (cmReady) checkDirty(); });
-  mountEditor('f-body-dynamic', dv, () => { if (cmReady) { checkDirty(); updateRiskBar(); } });
+  mountEditor('f-body-static',    sv,  () => { if (cmReady) checkDirty(); });
+  mountEditor('f-body-dynamic',   dv,  () => { if (cmReady) { checkDirty(); updateRiskBar(); } });
+  mountEditor('f-req-modifier',   rv,  () => { if (cmReady) checkDirty(); });
+  mountEditor('f-req-body-static', rsv, () => { if (cmReady) checkDirty(); });
   setTimeout(() => {
     cmReady = true;
     if (!isNew) setDirty(false);
@@ -485,36 +582,85 @@ export async function bindEditorEvents(rule, isNew = false) {
     setEditorValue('f-body-dynamic', formatJS(getEditorValue('f-body-dynamic')));
   });
 
+  document.getElementById('fmt-req-static')?.addEventListener('click', () => {
+    const code = getEditorValue('f-req-body-static');
+    try {
+      const parsed = JSON.parse(code);
+      setEditorValue('f-req-body-static', JSON.stringify(parsed, null, 2));
+    } catch {
+      setEditorValue('f-req-body-static', formatJS(code));
+    }
+  });
+
+  document.getElementById('fmt-req-modifier')?.addEventListener('click', () => {
+    setEditorValue('f-req-modifier', formatJS(getEditorValue('f-req-modifier')));
+  });
+
+  const _defStatic = currentResType === 'html'
+    ? '// Return the full file content as a string\n'
+    : '{\n  "success": true,\n  "data": []\n}';
+  const _defDynamic = currentResType === 'html'
+    ? `function modifyResponse(args) {\n  const { url, response } = args;\n  // response = full source text of the JS/CSS/HTML file\n  // Return the modified string\n  return response;\n}`
+    : `function modifyResponse(args) {\n  const { method, url, response, responseType, requestHeaders, requestData, responseJSON } = args;\n  return { ...responseJSON, mocked: true };\n}`;
+
+  document.getElementById('tpl-static')?.addEventListener('click', () => {
+    setEditorValue('f-body-static', _defStatic); checkDirty();
+  });
+  document.getElementById('tpl-dynamic')?.addEventListener('click', () => {
+    setEditorValue('f-body-dynamic', _defDynamic); checkDirty();
+  });
+  document.getElementById('tpl-req-static')?.addEventListener('click', () => {
+    setEditorValue('f-req-body-static', '{\n  \n}'); checkDirty();
+  });
+  document.getElementById('tpl-req-modifier')?.addEventListener('click', () => {
+    setEditorValue('f-req-modifier', defReqModifier); checkDirty();
+  });
+
   document.getElementById('btn-save').addEventListener('click', async () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { showToast('Rule name is required.', true); return; }
 
     const pairRows = document.querySelectorAll('.pair-row');
     const pairs = [];
+    const reqBodyType    = currentReqBodyType;
+    const reqBodyStatic  = reqBodyType === 'static'  ? getEditorValue('f-req-body-static') : '';
+    const reqBodyDynamic = reqBodyType === 'dynamic' ? getEditorValue('f-req-modifier')    : '';
+    const responseBody   = getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static');
+    const gqlOperation   = document.getElementById('f-gql-op')?.value.trim() || '';
+
     pairRows.forEach((row, idx) => {
       const urlPattern    = row.querySelector('.pair-url')?.value.trim() || '';
       const urlOperator   = row.querySelector('.pair-operator')?.value || 'Contains';
       const method        = row.querySelector('.pair-method')?.value || '';
       const caseSensitive = row.querySelector('.pair-cs')?.dataset.cs === 'true';
+      const redirectUrl   = row.querySelector('.pair-redirect-url')?.value.trim() || undefined;
       if (!urlPattern && pairRows.length > 1) return;
-      const existingPair = (rule.pairs || [])[idx] || {};
-      const editorBody = getEditorValue(currentRespType === 'dynamic' ? 'f-body-dynamic' : 'f-body-static');
+      const existingPair  = (rule.pairs || [])[idx] || {};
       pairs.push({
         id:            existingPair.id || ('pair_' + Date.now() + '_' + idx),
         urlPattern,
         urlOperator,
         method,
         caseSensitive,
-        responseType: currentRespType,
-        responseBody: idx === 0 ? editorBody : (existingPair.responseBody || editorBody),
-        statusCode:   document.getElementById('f-status').value,
-        delay:        parseInt(document.getElementById('f-delay').value) || 0,
-        gqlOperation: document.getElementById('f-gql-op')?.value.trim() || '',
+        gqlOperation,
+        redirectUrl,
       });
     });
 
     if (!pairs.length || !pairs[0].urlPattern) {
       showToast('At least one URL pattern is required.', true); return;
+    }
+
+    const _reqBody  = reqBodyType  === 'dynamic' ? (reqBodyDynamic || '') : (reqBodyStatic || '');
+    const _respBody = responseBody || '';
+    const _hasCustomization =
+      _reqBody.trim()  ||
+      _respBody.trim() ||
+      (document.getElementById('f-req-headers')?.value.trim()) ||
+      (document.getElementById('f-headers')?.value.trim())     ||
+      pairs.some(p => p.redirectUrl?.trim());
+    if (!_hasCustomization) {
+      showToast('Add at least a body, custom headers, or redirect URL.', true); return;
     }
 
     const updated = {
@@ -524,13 +670,23 @@ export async function bindEditorEvents(rule, isNew = false) {
       resourceType:    currentResType,
       resourceSubtype: currentResType === 'html' ? currentResSub : undefined,
       description:     document.getElementById('f-description')?.value.trim() || '',
-      customHeaders:   document.getElementById('f-headers')?.value.trim() || '',
       pairs,
+      request: {
+        type:          reqBodyType,
+        body:          reqBodyType === 'dynamic' ? (reqBodyDynamic || '') : (reqBodyStatic || ''),
+        customHeaders: document.getElementById('f-req-headers')?.value.trim() || '',
+      },
+      response: {
+        type:          currentRespType,
+        body:          responseBody,
+        statusCode:    document.getElementById('f-status').value,
+        delay:         parseInt(document.getElementById('f-delay').value) || 0,
+        customHeaders: document.getElementById('f-headers')?.value.trim() || '',
+      },
     };
 
     if (currentRespType === 'dynamic') {
-      const dynamicCode = pairs.map(p => p.responseBody).join('\n');
-      const risks = analyzeCode(dynamicCode);
+      const risks = analyzeCode(responseBody);
       if (risks.length > 0) {
         const confirmed = await showSecurityWarning(risks);
         if (!confirmed) return;

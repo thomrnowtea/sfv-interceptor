@@ -49,7 +49,7 @@ function newRule() {
   state.ghostRule = { name: '', resourceType: 'rest', urlPattern: '' };
   renderNav(document.getElementById('search').value);
   destroyEditors();
-  const blank = { enabled: true, resourceType: 'rest', responseType: 'static' };
+  const blank = { enabled: true, resourceType: 'rest' };
   document.getElementById('main').innerHTML = buildEditorHTML(blank);
   bindEditorEvents(blank, true);
   setTimeout(() => {

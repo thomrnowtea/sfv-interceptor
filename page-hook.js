@@ -69,6 +69,7 @@
           opacity: 0;
           transition: transform 0.45s cubic-bezier(0.3, -0.1, 1, 1), opacity 0.3s ease;
           pointer-events: auto;
+          cursor: pointer;
         }
         :host(.sfvi-in) {
           transform: translateX(0);
@@ -199,14 +200,17 @@
           su.textContent = this.getAttribute('su') || '';
           br.style.animationDuration = ms + 'ms';
 
-           // Pattern: small delay then add class to trigger CSS transition
+          // Pattern: small delay then add class to trigger CSS transition
           setTimeout(() => this.classList.add('sfvi-in'), 50);
 
-          setTimeout(() => {
+          const dismiss = () => {
             this.classList.remove('sfvi-in');
             this.classList.add('sfvi-out');
             setTimeout(() => this.remove(), 320);
-          }, ms);
+          };
+
+          const autoTimer = setTimeout(dismiss, ms);
+          this.addEventListener('click', () => { clearTimeout(autoTimer); dismiss(); }, { once: true });
         }
       }
 
@@ -425,6 +429,55 @@
     }
   }
 
+  // ── Request modifier (mutates outgoing body) ──────────────────────────────
+  function runModifyRequest(rule, args) {
+    const fn  = new Function(rule.requestBody + '\nreturn modifyRequest(arguments[0]);');
+    const res = fn(args);
+    return res == null ? '' : (typeof res === 'string' ? res : JSON.stringify(res));
+  }
+
+  async function runModifyRequestRemote(rule, args) {
+    await _waitForSandbox();
+    return new Promise((resolve, reject) => {
+      const id = '__sfvi_sandbox_req_' + Date.now() + '_' + Math.random();
+      const timeout = setTimeout(() => {
+        window.removeEventListener('message', handler);
+        reject(new Error('runModifyRequestRemote timeout'));
+      }, 5000);
+
+      function handler(ev) {
+        if (!ev.data || ev.data.type !== '__sfvi_sandbox_result__') return;
+        if (ev.data.id !== id) return;
+        clearTimeout(timeout);
+        window.removeEventListener('message', handler);
+        if (ev.data.error) reject(new Error(ev.data.error));
+        else resolve(ev.data.result);
+      }
+
+      window.addEventListener('message', handler);
+
+      const iframe = document.getElementById('__sfvi_sandbox__');
+      iframe.contentWindow.postMessage({
+        type: '__sfvi_sandbox_exec_request__',
+        id,
+        code: rule.requestBody,
+        args,
+      }, '*');
+    });
+  }
+
+  async function runModifyRequestSafe(rule, args) {
+    try {
+      return runModifyRequest(rule, args);
+    } catch (err) {
+      const isCsp = err instanceof EvalError || /CSP|Content Security Policy|unsafe-eval|evaluating a string as javascript/i.test(err.message);
+      if (isCsp) {
+        return await runModifyRequestRemote(rule, args);
+      }
+      throw err;
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // FETCH OVERRIDE
   // ═══════════════════════════════════════════════════════════════════════════
@@ -450,7 +503,7 @@
         else if (typeof init.headers === 'object') Object.assign(requestHeaders, init.headers);
       }
     }
-    const abs = toAbs(url);
+    let abs = toAbs(url);
 
     const rule = STATE.apis.find(r =>
       matchesRule(abs, r) &&
@@ -459,15 +512,81 @@
     );
     if (!rule) return _nativeFetch(input, init);
 
+    // ── Mutate outgoing request ───────────────────────────────────────────
+    let outgoingBody = reqBody;
+    if (rule.requestBodyType === 'static' && rule.requestBody) {
+      outgoingBody = rule.requestBody;
+    } else if (rule.requestBodyType === 'dynamic' && rule.requestBody) {
+      let parsedReqData = null;
+      try { if (typeof reqBody === 'string') parsedReqData = JSON.parse(reqBody); } catch {}
+      try {
+        const modified = await runModifyRequestSafe(rule, {
+          method, url: abs,
+          requestHeaders,
+          requestData: reqBody,
+          requestJSON: parsedReqData,
+        });
+        if (modified != null) {
+          outgoingBody = typeof modified === 'string' ? modified : JSON.stringify(modified);
+        }
+      } catch (err) {
+        console.error('[SFV-I] requestBody (dynamic) error:', err.message);
+      }
+    }
+    let finalInput = input;
+    let finalInit  = { ...(init || {}) };
+
+    // body
+    if (outgoingBody !== reqBody) {
+      finalInit.body = outgoingBody;
+    }
+
+    // headers
+    if (rule.requestCustomHeaders) {
+      try {
+        const customReqH = typeof rule.requestCustomHeaders === 'string'
+          ? JSON.parse(rule.requestCustomHeaders)
+          : rule.requestCustomHeaders;
+
+        const merged = new Headers(finalInit.headers || requestHeaders || {});
+
+        for (const [k, v] of Object.entries(customReqH)) {
+          merged.set(k, String(v));
+        }
+
+        finalInit.headers = merged;
+      } catch {}
+    }
+
+    // redirect
+    if (rule.redirectUrl) {
+      abs = toAbs(rule.redirectUrl);
+      finalInput = abs;
+    }
+
+    // normalize request object
+    if (typeof finalInput !== 'string') {
+      finalInput = new Request(finalInput, finalInit);
+    } else {
+      finalInit = Object.keys(finalInit).length ? finalInit : undefined;
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     notifyApplied(rule.id, abs);
     const statusCode = rule.statusCode || '200';
     const title      = method + ' · ' + _shortUrl(abs);
 
-    if (rule.delay > 0) await new Promise(r => setTimeout(r, rule.delay));
-
     if (rule.responseType !== 'dynamic') {
       _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-      return buildResponse(rule, rule.responseBody || '', abs);
+      if (!rule.responseBody) {
+        return _nativeFetch(finalInput, finalInit);
+      }
+      return buildResponse(rule, rule.responseBody, abs);
+    }
+
+    if (!rule.responseBody) {
+      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399');
+      return _nativeFetch(finalInput, finalInit);
     }
 
     try {
@@ -487,7 +606,10 @@
       return buildResponse(rule, body, abs);
     } catch (err) {
       _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-      return buildResponse(rule, rule.responseBody || '', abs);
+      if (!rule.responseBody) {
+        return _nativeFetch(finalInput, finalInit);
+      }
+      return buildResponse(rule, rule.responseBody, abs);
     }
   };
   _nativables.add(_fetchOverride);
@@ -530,23 +652,55 @@
     );
     if (!rule) return _protoSend.call(this, body);
 
+    // ── Mutate outgoing request ───────────────────────────────────────────
+    let outgoingBody = body;
+    if (rule.requestBodyType === 'static' && rule.requestBody) {
+      outgoingBody = rule.requestBody;
+    } else if (rule.requestBodyType === 'dynamic' && rule.requestBody) {
+      let parsedReqData = null;
+      try { if (typeof body === 'string') parsedReqData = JSON.parse(body); } catch {}
+      try {
+        const modified = runModifyRequest(rule, {
+          method: this[_METHOD],
+          url,
+          requestHeaders: this[_HDRS] || {},
+          requestData: body,
+          requestJSON: parsedReqData,
+        });
+        if (modified != null) {
+          outgoingBody = typeof modified === 'string' ? modified : JSON.stringify(modified);
+        }
+      } catch (err) {
+        console.error('[SFV-I] requestBody (dynamic) error:', err.message);
+      }
+    }
+    let reqHeaders = { ...(this[_HDRS] || {}) };
+    if (rule.requestCustomHeaders) {
+      try {
+        const customReqH = typeof rule.requestCustomHeaders === 'string'
+          ? JSON.parse(rule.requestCustomHeaders)
+          : rule.requestCustomHeaders;
+        Object.assign(reqHeaders, customReqH);
+      } catch {}
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     notifyApplied(rule.id, this[_URL]);
 
     const xhr        = this;
     const reqMethod  = this[_METHOD];
-    const reqUrl     = this[_URL];
-    const reqHeaders = this[_HDRS] || {};
+    const reqUrl     = rule.redirectUrl ? toAbs(rule.redirectUrl) : this[_URL];
     const delay      = rule.delay > 0 ? rule.delay : 0;
     const statusCode = rule.statusCode || '200';
     const title      = reqMethod + ' · ' + _shortUrl(reqUrl);
     const isSync     = this[_ASYNC] === false;
 
-    function dispatchMock(mockBody) {
-      const st = parseInt(rule.statusCode) || 200;
+    function dispatchMock(mockBody, realStatus, realStatusText, realHeaders) {
+      const st = realStatus || parseInt(rule.statusCode) || 200;
       const props = {
         readyState:   4,
         status:       st,
-        statusText:   st === 200 ? 'OK' : String(st),
+        statusText:   realStatusText || (st === 200 ? 'OK' : String(st)),
         responseText: mockBody,
         response:     mockBody,
         responseURL:  reqUrl,
@@ -557,6 +711,32 @@
         } catch {
           try { xhr[k] = v; } catch {}
         }
+      }
+      // Preserve real response headers so jQuery can detect JSON via Content-Type
+      const _headerMap = new Map();
+      if (typeof realHeaders === 'string') {
+        realHeaders.split(/\r?\n/).forEach(line => {
+          const idx = line.indexOf(':');
+          if (idx > 0) _headerMap.set(line.slice(0, idx).trim().toLowerCase(), line.slice(idx + 1).trim());
+        });
+      }
+      try {
+        Object.defineProperty(xhr, 'getResponseHeader', {
+          value: function getResponseHeader(name) {
+            return _headerMap.get(String(name).toLowerCase()) || null;
+          },
+          configurable: true, enumerable: true, writable: true,
+        });
+      } catch {
+        try { xhr.getResponseHeader = function(name) { return _headerMap.get(String(name).toLowerCase()) || null; }; } catch {}
+      }
+      try {
+        Object.defineProperty(xhr, 'getAllResponseHeaders', {
+          value: function getAllResponseHeaders() { return typeof realHeaders === 'string' ? realHeaders : ''; },
+          configurable: true, enumerable: true, writable: true,
+        });
+      } catch {
+        try { xhr.getAllResponseHeaders = function() { return typeof realHeaders === 'string' ? realHeaders : ''; }; } catch {}
       }
       const fire = () => {
         xhr.dispatchEvent(new Event('readystatechange'));
@@ -571,17 +751,59 @@
     }
 
     if (rule.responseType !== 'dynamic') {
+      if (!rule.responseBody) {
+        if (isSync) {
+          const realXhr = new _NativeXHR();
+          _protoOpen.call(realXhr, reqMethod, reqUrl, false);
+          Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
+          _protoSend.call(realXhr, outgoingBody);
+          dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
+          _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399');
+        } else {
+          const realXhr = new _NativeXHR();
+          _protoOpen.call(realXhr, reqMethod, reqUrl, true);
+          Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
+          realXhr.onload  = () => { dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders()); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399'); };
+          realXhr.onerror = () => { dispatchMock(''); };
+          _protoSend.call(realXhr, outgoingBody);
+        }
+        return;
+      }
       if (isSync) {
-        dispatchMock(rule.responseBody || '');
+        dispatchMock(rule.responseBody);
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
         return;
       }
       const realXhr = new _NativeXHR();
       _protoOpen.call(realXhr, reqMethod, reqUrl, true);
       Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-      realXhr.onload  = () => { dispatchMock(rule.responseBody || ''); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399'); };
-      realXhr.onerror = () => { dispatchMock(rule.responseBody || ''); };
-      _protoSend.call(realXhr, body);
+      realXhr.onload  = () => { dispatchMock(rule.responseBody); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399'); };
+      realXhr.onerror = () => { dispatchMock(rule.responseBody); };
+      _protoSend.call(realXhr, outgoingBody);
+      return;
+    }
+
+    if (!rule.responseBody) {
+      if (isSync) {
+        const realXhr = new _NativeXHR();
+        _protoOpen.call(realXhr, reqMethod, reqUrl, false);
+        Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
+        _protoSend.call(realXhr, outgoingBody);
+        dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
+        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399');
+      } else {
+        const realXhr = new _NativeXHR();
+        _protoOpen.call(realXhr, reqMethod, reqUrl, true);
+        Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
+        try {
+          ['responseType', 'withCredentials', 'timeout'].forEach(p => {
+            if (xhr[p] != null) realXhr[p] = xhr[p];
+          });
+        } catch {}
+        realXhr.onload  = () => { dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders()); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399'); };
+        realXhr.onerror = () => { dispatchMock(''); };
+        _protoSend.call(realXhr, outgoingBody);
+      }
       return;
     }
 
@@ -595,8 +817,8 @@
     } catch {}
 
     if (isSync) {
-      _protoSend.call(realXhr, body);
-      let result = rule.responseBody || '';
+      _protoSend.call(realXhr, outgoingBody);
+      let result = rule.responseBody;
       try {
         const origText = realXhr.responseText;
         let origJSON = null;
@@ -610,10 +832,10 @@
           requestHeaders: reqHeaders,
           requestData:    body,
         });
-        dispatchMock(result);
+        dispatchMock(result, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
       } catch (err) {
-        dispatchMock(rule.responseBody || '');
+        dispatchMock(rule.responseBody || realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       }
       return;
@@ -633,15 +855,15 @@
           requestHeaders: reqHeaders,
           requestData:    body,
         });
-        dispatchMock(result);
+        dispatchMock(result, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
       } catch (err) {
-        dispatchMock(rule.responseBody || '');
+        dispatchMock(rule.responseBody || realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
         _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
       }
     };
     realXhr.onerror = () => dispatchMock(rule.responseBody || '');
-    _protoSend.call(realXhr, body);
+    _protoSend.call(realXhr, outgoingBody);
   };
   _nativables.add(_xhrSend);
   try { XMLHttpRequest.prototype.send = _xhrSend; } catch {}

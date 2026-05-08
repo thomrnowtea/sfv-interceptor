@@ -3,24 +3,47 @@
 
   window.addEventListener('message', (ev) => {
     if (!ev.data) return;
-    if (ev.data.type !== '__sfvi_sandbox_exec__') return;
 
-    try {
-      const fn = new Function(ev.data.code + '\nreturn modifyResponse(arguments[0]);');
-      const result = fn(ev.data.args);
-      const serialized = result == null ? '' : (typeof result === 'string' ? result : JSON.stringify(result));
+    if (ev.data.type === '__sfvi_sandbox_exec__') {
+      try {
+        const fn = new Function(ev.data.code + '\nreturn modifyResponse(arguments[0]);');
+        const result = fn(ev.data.args);
+        const serialized = result == null ? '' : (typeof result === 'string' ? result : JSON.stringify(result));
 
-      ev.source.postMessage({
-        type: '__sfvi_sandbox_result__',
-        id: ev.data.id,
-        result: serialized,
-      }, '*');
-    } catch (err) {
-      ev.source.postMessage({
-        type: '__sfvi_sandbox_result__',
-        id: ev.data.id,
-        error: err.message || String(err),
-      }, '*');
+        ev.source.postMessage({
+          type: '__sfvi_sandbox_result__',
+          id: ev.data.id,
+          result: serialized,
+        }, '*');
+      } catch (err) {
+        ev.source.postMessage({
+          type: '__sfvi_sandbox_result__',
+          id: ev.data.id,
+          error: err.message || String(err),
+        }, '*');
+      }
+      return;
+    }
+
+    if (ev.data.type === '__sfvi_sandbox_exec_request__') {
+      try {
+        const fn = new Function(ev.data.code + '\nreturn modifyRequest(arguments[0]);');
+        const result = fn(ev.data.args);
+        const serialized = result == null ? '' : (typeof result === 'string' ? result : JSON.stringify(result));
+
+        ev.source.postMessage({
+          type: '__sfvi_sandbox_result__',
+          id: ev.data.id,
+          result: serialized,
+        }, '*');
+      } catch (err) {
+        ev.source.postMessage({
+          type: '__sfvi_sandbox_result__',
+          id: ev.data.id,
+          error: err.message || String(err),
+        }, '*');
+      }
+      return;
     }
   });
 

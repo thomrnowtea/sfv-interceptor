@@ -25,6 +25,7 @@
   function send() {
     window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: data.rules }, _origin);
   }
+  createSandboxIframe();
   send();
   sendTheme();
   window.addEventListener('message', function h(ev) {
@@ -51,10 +52,9 @@ try {
   });
 } catch {}
 
-// Create sandbox iframe for modifyResponse execution (bypasses iframe CSP)
-(function createSandboxIframe() {
+function createSandboxIframe() {
   if (document.getElementById('__sfvi_sandbox__')) return;
-  // Don't create sandbox iframe inside the sandbox page itself or any nested frame
+  if (location.protocol === 'chrome-extension:') return;
   if (document.documentElement?.dataset?.sfviSandbox) return;
   const iframe = document.createElement('iframe');
   iframe.id = '__sfvi_sandbox__';
@@ -69,4 +69,4 @@ try {
     };
     requestAnimationFrame(tryAppend);
   }
-})();
+}

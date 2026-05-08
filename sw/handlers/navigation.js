@@ -90,7 +90,7 @@ export function initNavigation() {
         : assetUrl.split('/').pop().split('?')[0];
 
       if (isPageInject) {
-        const modifyCode = pair.responseBody || '';
+        const modifyCode = rule.response?.body || '';
         if (!modifyCode) return;
         try {
           await chrome.scripting.executeScript({
@@ -113,8 +113,8 @@ export function initNavigation() {
       const original = await getOriginalText(assetUrl, pageUrl);
 
       if (original === null) {
-        const modifyCode = pair.responseType === 'static' ? null : (pair.responseBody || '');
-        const staticBody = pair.responseType === 'static' ? (pair.responseBody || '') : null;
+        const modifyCode = rule.response?.type === 'static' ? null : (rule.response?.body || '');
+        const staticBody = rule.response?.type === 'static' ? (rule.response?.body || '') : null;
         if (!modifyCode && staticBody === null) return;
         try {
           await chrome.scripting.executeScript({
@@ -166,8 +166,8 @@ export function initNavigation() {
         return;
       }
 
-      const modifyCode = pair.responseType === 'static' ? null : (pair.responseBody || '');
-      const staticBody = pair.responseType === 'static' ? (pair.responseBody || '') : null;
+      const modifyCode = rule.response?.type === 'static' ? null : (rule.response?.body || '');
+      const staticBody = rule.response?.type === 'static' ? (rule.response?.body || '') : null;
 
       try {
         await chrome.scripting.executeScript({

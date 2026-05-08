@@ -15,16 +15,20 @@ export async function getApiRules() {
       const regexFilter = pairToRegexFilter(pair);
       if (!regexFilter) continue;
       result.push({
-        id:            rule.id + '|' + pair.id,
-        name:          rule.name          || '',
-        regex:         regexFilter,
-        method:        pair.method        || '',
-        responseType:  pair.responseType  || rule.responseType  || 'static',
-        responseBody:  pair.responseBody  || rule.responseBody  || '',
-        statusCode:    pair.statusCode    || rule.statusCode    || 200,
-        delay:         parseInt(pair.delay || rule.delay) || 0,
-        gqlOperation:  pair.gqlOperation  || '',
-        customHeaders: rule.customHeaders || '',
+        id:                   rule.id + '|' + pair.id,
+        name:                 rule.name             || '',
+        regex:                regexFilter,
+        method:               pair.method           || '',
+        responseType:         rule.response?.type          || 'static',
+        responseBody:         rule.response?.body          || '',
+        statusCode:           rule.response?.statusCode    || 200,
+        delay:                parseInt(rule.response?.delay) || 0,
+        gqlOperation:         pair.gqlOperation            || '',
+        customHeaders:        rule.response?.customHeaders || '',
+        requestBodyType:      rule.request?.type           || 'static',
+        requestBody:          rule.request?.body           || '',
+        requestCustomHeaders: rule.request?.customHeaders  || '',
+        redirectUrl:          pair.redirectUrl             || '',
       });
     }
   }

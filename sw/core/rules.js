@@ -1,36 +1,80 @@
 const STORAGE_KEY = 'sfvi_rules';
 let _cache = null;
 
-export function migrateRule(rule) {
-  if (rule.resourceType === 'html' && !rule.resourceSubtype) {
-    rule = { ...rule, resourceSubtype: 'html' };
-  }
-  if (Array.isArray(rule.pairs) && rule.pairs.length) {
-    const props = ['responseType', 'responseBody', 'statusCode', 'delay'];
-    rule.pairs = rule.pairs.map(p => {
-      const merged = { ...p };
-      for (const prop of props) {
-        if (merged[prop] == null && rule[prop] != null) merged[prop] = rule[prop];
-      }
-      return merged;
-    });
-    return rule;
-  }
+function canonicalPair(p) {
   return {
-    id:           rule.id,
-    name:         rule.name,
-    enabled:      rule.enabled,
-    resourceType: rule.resourceType || 'rest',
-    pairs: [{
-      id:           'pair_' + (rule.id || 'migrated'),
-      urlPattern:   rule.urlPattern   || '',
-      urlOperator:  rule.urlOperator  || 'Contains',
-      method:       rule.method       || '',
-      responseType: rule.responseType || 'static',
-      responseBody: rule.responseBody || '',
-      statusCode:   rule.statusCode   || '',
-      delay:        parseInt(rule.delay) || 0,
-    }],
+    id:            p.id            || '',
+    urlPattern:    p.urlPattern    || '',
+    urlOperator:   p.urlOperator   || 'Contains',
+    method:        p.method        || '',
+    caseSensitive: p.caseSensitive ?? false,
+    gqlOperation:  p.gqlOperation  || '',
+    redirectUrl:   p.redirectUrl   || '',
+  };
+}
+
+function canonicalRequest(rule, pair0) {
+  if (rule.request) {
+    return {
+      type:          rule.request.type          || 'static',
+      body:          rule.request.body          || '',
+      customHeaders: rule.request.customHeaders || '',
+    };
+  }
+  // Migrate from old per-pair fields
+  const type = pair0.requestBodyType || (pair0.requestModifier ? 'dynamic' : 'static');
+  const body = type === 'dynamic'
+    ? (pair0.requestBody || pair0.requestModifier || '')
+    : (pair0.requestBody || '');
+  return { type, body, customHeaders: rule.requestCustomHeaders || '' };
+}
+
+function canonicalResponse(rule, pair0) {
+  if (rule.response) {
+    return {
+      type:          rule.response.type          || 'static',
+      body:          rule.response.body          || '',
+      statusCode:    String(rule.response.statusCode ?? ''),
+      delay:         parseInt(rule.response.delay) || 0,
+      customHeaders: rule.response.customHeaders || '',
+    };
+  }
+  // Migrate from old per-pair fields
+  const type = pair0.responseType || rule.responseType || 'static';
+  const body = pair0.responseBody || rule.responseBody || '';
+  return {
+    type,
+    body,
+    statusCode:    String(pair0.statusCode ?? rule.statusCode ?? ''),
+    delay:         parseInt(pair0.delay ?? rule.delay) || 0,
+    customHeaders: rule.customHeaders || '',
+  };
+}
+
+export function migrateRule(rule) {
+  const resourceType    = rule.resourceType || 'rest';
+  const resourceSubtype = resourceType === 'html' ? (rule.resourceSubtype || 'html') : undefined;
+  const pair0 = Array.isArray(rule.pairs) && rule.pairs.length ? rule.pairs[0] : {};
+
+  const pairs = Array.isArray(rule.pairs) && rule.pairs.length
+    ? rule.pairs.map(canonicalPair)
+    : [canonicalPair({
+        id:          'pair_' + (rule.id || 'migrated'),
+        urlPattern:  rule.urlPattern  || '',
+        urlOperator: rule.urlOperator || 'Contains',
+        method:      rule.method      || '',
+      })];
+
+  return {
+    id:             rule.id,
+    name:           rule.name        || '',
+    enabled:        rule.enabled     !== false,
+    resourceType,
+    resourceSubtype,
+    description:    rule.description || '',
+    pairs,
+    request:        canonicalRequest(rule, pair0),
+    response:       canonicalResponse(rule, pair0),
   };
 }
 
