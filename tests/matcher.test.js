@@ -12,13 +12,13 @@ test('literal operators escape asterisks and regex punctuation before creating f
 });
 
 test('wildcard file blockers and runtime matching agree on full URLs and literal punctuation', () => {
-  const pair={urlPattern:'https://example.com/assets/*.js?build=1',urlOperator:'Wildcard'};
+  const pair={urlPattern:'https://events.example.test/assets/*.js?build=1',urlOperator:'Wildcard'};
   const expression=new RegExp(pairToRegexFilter(pair),'i');
   for (const [url,expected] of [
-    ['https://example.com/assets/checkout.bundle.js.js?build=1',true],
-    ['https://exampleXcom/assets/checkout.bundle.js.js?build=1',false],
-    ['https://example.com/assets/checkout.bundle.js.js?build=10',false],
-    ['https://other.test/https://example.com/assets/file.js?build=1',false],
+    ['https://events.example.test/assets/checkout.bundle.js?build=1',true],
+    ['https://eventsXexample.test/assets/checkout.bundle.js?build=1',false],
+    ['https://events.example.test/assets/checkout.bundle.js?build=10',false],
+    ['https://other.test/https://events.example.test/assets/file.js?build=1',false],
   ]) {
     assert.equal(expression.test(url),expected,url);
     assert.equal(urlMatchesPair(url,pair),expected,url);

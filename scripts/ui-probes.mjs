@@ -124,7 +124,7 @@ async function toastProbes() {
   await page.goto('https://ui.sfvi.test/toasts');
   await page.waitForFunction(()=>[...document.fonts].some(font=>font.family==='SFVI Manrope' && font.status==='loaded'));
   await page.locator('#host-control').focus();
-  await notify(page,'JavaScript asset replacement');
+  await notify(page,'JavaScript asset patched');
   assert.equal(await page.evaluate(()=>document.activeElement.id),'host-control');
   const session=await context.newCDPSession(page);
   await session.send('DOM.enable'); await session.send('CSS.enable');
@@ -304,7 +304,7 @@ async function zoomProbe(page) {
 
 try {
   const names=['Example page layout','Example API response','JavaScript asset replacement','Example event page','Remote banner example','Disabled feature example','Long example rule name for responsive layout and overflow checks'];
-  const rules=names.map((name,index)=>({id:`legacy-${index}`,name,enabled:index!==5,resourceType:index===1?'rest':'html',resourceSubtype:index===2?'js':'html',urlPattern:index===2?'*checkout.bundle.js*':'https://www.example.test/event/*',responseBody:'// fixture'}));
+  const rules=names.map((name,index)=>({id:`legacy-${index}`,name,enabled:index!==5,resourceType:index===1?'rest':'html',resourceSubtype:index===2?'js':'html',urlPattern:index===2?'*checkout.bundle.js*':'https://events.example.test/event/*',responseBody:'// fixture'}));
   const source={id:'source_qa',name:'Shared sample rules for responsive frontend and layout testing',url:'https://fixtures.sfvi.test/qa.json',intervalMinutes:60,rules:[{...rules[1],id:'shared',name:'Shared response example',version:'2026.10.16'}]};
   writeFileSync(join(artifacts,'fixture.json'),JSON.stringify({rules,source},null,2));
   await worker.evaluate(({rules,source})=>chrome.storage.local.set({sfvi_rules:rules,sfvi_sources:[source],sfvi_theme:'default',sfvi_theme_vars:{'--bg':'#1c1c1e'}}),{rules,source});

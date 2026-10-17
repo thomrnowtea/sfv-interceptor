@@ -89,22 +89,13 @@ try {
   assert.equal(await dashboard.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(15, 17, 23)');
   await dashboard.screenshot({ path: join(assets, 'readme-dashboard.png') });
 
-  const popup = await context.newPage();
-  await popup.setViewportSize({ width: 360, height: 500 });
-  await popup.emulateMedia({ reducedMotion: 'reduce' });
-  await popup.goto(extension + '/popup/popup.html');
-  await popup.locator('[data-toggle="remote:source_readme:preview-banner"]').waitFor();
-  await popup.evaluate(() => document.fonts.ready);
-  assert.equal(await popup.locator('.rule-item').count(), 5);
-  assert.equal(await popup.locator('[data-edit], [data-del]').count(), 0);
-  assert.equal(await popup.locator('#new-rule').isVisible(), true);
-  await popup.mouse.move(359, 499);
-  await popup.screenshot({ path: join(assets, 'readme-popup.png') });
   assert.deepEqual(errors, []);
   writeFileSync(join(artifacts, 'results.json'), JSON.stringify({
     palette: 'shared/themes.js default', font: renderedFonts.fonts, logo: 'icons/icon128.png',
     extensionRoot: unpacked, fixture: 'Synthetic example.com rules; isolated profile',
-    images: ['readme-cover.png', 'readme-dashboard.png', 'readme-popup.png'], errors,
+    images: ['readme-cover.png', 'readme-dashboard.png'],
+    popupCapture: 'readme-popup.mjs opens the native popup on example.com in an isolated profile; capture the browser window with an OS screenshot tool.',
+    errors,
   }, null, 2));
-  console.log('README assets generated: branded Manrope cover, real dashboard, real popup; default palette, no private data.');
+  console.log('README assets generated: branded Manrope cover and dashboard using synthetic rules.');
 } finally { await context.close(); }

@@ -54,7 +54,7 @@ All runners own isolated profiles and do not attach to a personal browser. On Wi
 
 ## Bundled font and optional design tooling
 
-`npm run docs:images` regenerates the README cover and two interface captures under `docs/assets/`. It renders the original logo, bundled Manrope and exact default theme tokens, then captures the actual packaged dashboard/popup in an isolated profile with synthetic `example.com` rules. The cover is static HTML/CSS; CDP verifies the rendered heading uses the custom Manrope face. Supporting measurements stay in `.artifacts/readme/`. Documentation images and the generator remain outside the extension ZIP.
+`npm run docs:images` regenerates the README cover and dashboard capture under `docs/assets/`, using the original logo, bundled Manrope, default theme tokens, and synthetic rules. `npm run docs:popup` opens a visible, isolated Chromium window on `https://example.com` with a local example page, synthetic rules, and the native extension popup open. Capture the whole browser window with an OS screenshot tool and save it as `docs/assets/readme-popup.png`. Neither command uses a personal browser profile or rule data. Supporting measurements stay in `.artifacts/readme/`; documentation images and generators remain outside the extension ZIP.
 
 The Latin Manrope asset comes from `@fontsource-variable/manrope`, with its SIL OFL license retained. Update the checked-in WOFF2 and license together when updating the package. The extension loads its assets locally and has no runtime dependency on Fontsource or a font CDN.
 

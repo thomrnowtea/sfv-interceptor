@@ -9,6 +9,7 @@
     "package": "node scripts/package-release.mjs",
     "test:release": "node scripts/release-check.mjs",
     "docs:images": "node scripts/readme-assets.mjs",
+    "docs:popup": "node scripts/readme-popup.mjs",
     "test:browser": "node scripts/browser-check.mjs",
     "test:ui": "node scripts/ui-probes.mjs",
     "test:popup": "node scripts/popup-check.mjs",

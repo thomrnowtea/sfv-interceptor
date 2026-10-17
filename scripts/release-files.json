@@ -1,5 +1,6 @@
 [
   "manifest.json",
+  "LICENSE",
   "background.js",
   "content.js",
   "page-hook.js",

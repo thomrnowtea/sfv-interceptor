@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SFV Interceptor",
   "version": "1.3.0",
-  "description": "Modify, override, and mock HTTP requests, JS, and CSS in real time — no account required.",
+  "description": "Mock REST and GraphQL responses, replace JS and CSS files, and inject page code.",
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
