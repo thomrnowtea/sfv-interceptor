@@ -1,16 +1,51 @@
+import { themedHighlightStyle } from './highlight.js';
+import { formatSelection } from './formatter.js';
+import { showToast } from '../core/utils.js';
+export { formatJS } from './formatter.js';
+
 let cmEditors = {};
+const formatting = new WeakSet();
+const fallbackEditors = new WeakMap();
+const editorValues = new WeakMap();
+const PRESENTATION_EVENT = 'format.presentation';
+
+function rememberPresentation(value, visible, backing) {
+  value.presentations.set(visible, backing);
+}
+
+function editorChanged(textarea, visible, onChange) {
+  const value = editorValues.get(textarea);
+  value.revision++;
+  value.backing = value.presentations.get(visible) ?? visible;
+  textarea.value = visible;
+  onChange?.();
+}
 
 export function initCodeMirror() { return !!window.CM6; }
 
-export function mountEditor(textareaId, code, onChange) {
+export function mountEditor(textareaId, code, onChange, {
+  readOnly = false, getLanguage = () => 'javascript', contextVersion = () => 0,
+} = {}) {
   const textarea = document.getElementById(textareaId);
   if (!textarea) return null;
 
   textarea.value = code;
+  textarea.readOnly = readOnly;
+  editorValues.set(textarea, { backing: code, revision: 0, presentations: new Map([[code, code]]) });
+
+  const presentInitialCode = () => {
+    void formatEditor(textareaId, { language: getLanguage(), contextVersion, automatic: true });
+  };
 
   if (!window.CM6) {
     textarea.style.display = '';
-    if (onChange) textarea.addEventListener('input', onChange);
+    const fallback = { revision: 0 };
+    fallbackEditors.set(textarea, fallback);
+    textarea.addEventListener('input', () => {
+      fallback.revision++;
+      editorChanged(textarea, textarea.value, onChange);
+    });
+    presentInitialCode();
     return null;
   }
 
@@ -30,7 +65,7 @@ export function mountEditor(textareaId, code, onChange) {
   const theme = EditorView.theme({
     '&': { background: 'var(--cm-editor)', color: 'var(--cm-text)', height: 'auto' },
     '.cm-scroller': {
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      fontFamily: 'var(--mono)',
       fontSize: '12.5px', lineHeight: '1.65',
       minHeight: '200px', maxHeight: '500px', overflow: 'auto',
     },
@@ -38,36 +73,21 @@ export function mountEditor(textareaId, code, onChange) {
     '.cm-line':     { padding: '0 14px' },
     '.cm-gutters':  { background: 'var(--cm-gutter)', borderRight: '1px solid var(--cm-border)', color: 'var(--cm-gutter-text)', paddingRight: '4px' },
     '.cm-gutterElement': { minWidth: '28px' },
-    '.cm-activeLineGutter': { background: 'var(--accent-dim)', color: 'var(--accent)' },
+    '.cm-activeLineGutter': { background: 'var(--accent-dim)', color: 'var(--accent-link)' },
     '.cm-activeLine': { background: 'var(--accent-dim)' },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { background: 'var(--accent-dim2)' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
     '.cm-matchingBracket': { background: 'var(--accent-dim)', outline: '1px solid var(--accent-dim2)' },
     '.cm-tooltip': { background: 'var(--cm-toolbar)', border: '1px solid var(--cm-border)', borderRadius: '6px', color: 'var(--cm-text)' },
-    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--accent)', color: 'var(--accent-text)' },
-    '.tok-keyword':      { color: '#ff7b72' },
-    '.tok-definition.tok-variableName': { color: '#d2a8ff' },
-    '.tok-definition.tok-function': { color: '#d2a8ff' },
-    '.tok-variableName': { color: '#e6edf3' },
-    '.tok-string':       { color: '#a5d6ff' },
-    '.tok-string2':      { color: '#a5d6ff' },
-    '.tok-number':       { color: '#f2cc60' },
-    '.tok-comment':      { color: '#8b949e', fontStyle: 'italic' },
-    '.tok-operator':     { color: '#ff7b72' },
-    '.tok-punctuation':  { color: 'var(--cm-text)' },
-    '.tok-propertyName': { color: '#79c0ff' },
-    '.tok-atom':         { color: '#79c0ff' },
-    '.tok-bool':         { color: '#79c0ff' },
-    '.tok-null':         { color: '#79c0ff' },
-    '.tok-typeName':     { color: '#ffa657' },
-    '.tok-className':    { color: '#ffa657' },
-    '.tok-self':         { color: '#ffa657' },
-    '.tok-regexp':       { color: '#a5d6ff' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--accent-action)', color: 'var(--accent-text)' },
   }, { dark: true });
 
   const edState = EditorState.create({
     doc: code,
     extensions: [
+      EditorState.readOnly.of(readOnly),
+      EditorView.editable.of(!readOnly),
+      EditorView.contentAttributes.of({ 'aria-label': textarea.getAttribute('aria-label') || 'Code editor', ...(readOnly ? { tabindex: '0', 'aria-readonly': 'true' } : {}) }),
       lineNumbers(),
       highlightActiveLine(),
       drawSelection(),
@@ -77,25 +97,24 @@ export function mountEditor(textareaId, code, onChange) {
       autocompletion(),
       foldGutter(),
       history(),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      syntaxHighlighting(themedHighlightStyle(defaultHighlightStyle)),
       javascript(),
       keymap.of([
         ...defaultKeymap, ...historyKeymap, indentWithTab,
         {
           key: 'Alt-Shift-f',
-          run(view) {
-            const code      = view.state.doc.toString();
-            const formatted = formatJS(code);
-            if (formatted === code) return true;
-            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: formatted } });
+          run() {
+            if (readOnly) return false;
+            void formatEditor(textareaId, { language: getLanguage(), contextVersion });
             return true;
           },
         },
       ]),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
-          textarea.value = update.state.doc.toString();
-          if (onChange) onChange();
+          const visible = update.state.doc.toString();
+          if (update.transactions.every(transaction => transaction.isUserEvent(PRESENTATION_EVENT))) textarea.value = visible;
+          else editorChanged(textarea, visible, onChange);
         }
       }),
       theme,
@@ -104,76 +123,105 @@ export function mountEditor(textareaId, code, onChange) {
 
   const view = new EditorView({ state: edState, parent: wrap });
   cmEditors[textareaId] = view;
+  presentInitialCode();
   return view;
 }
 
-export function formatJS(code) {
-  code = code.trim();
-  const TAB = '  ';
-  let out = '', indent = 0;
-  let i = 0, inString = false, stringChar = '', inComment = false, inLineComment = false;
+function captureEditor(id, allowReadOnly = false) {
+  const textarea = document.getElementById(id);
+  if (!textarea || (textarea.readOnly && !allowReadOnly)) return null;
+  const value = editorValues.get(textarea);
+  const view = cmEditors[id];
+  if (view) return { id, textarea, view, target: view, doc: view.state.doc, selection: view.state.selection, value, revision: value.revision,
+    code: view.state.doc.toString(), cursorOffset: view.state.selection.main.head,
+    anchorOffset: view.state.selection.main.anchor };
+  return { id, textarea, target: textarea, value, code: textarea.value,
+    cursorOffset: textarea.selectionEnd, anchorOffset: textarea.selectionStart,
+    selectionDirection: textarea.selectionDirection, revision: fallbackEditors.get(textarea)?.revision };
+}
 
-  function pad() { return TAB.repeat(Math.max(0, indent)); }
+function sameViewState(snapshot) {
+  return snapshot.value.revision === snapshot.revision && cmEditors[snapshot.id] === snapshot.view && snapshot.view.state.doc === snapshot.doc
+    && snapshot.view.state.selection === snapshot.selection;
+}
 
-  while (i < code.length) {
-    const ch = code[i], nx = code[i + 1];
+function sameTextareaState(snapshot) {
+  return fallbackEditors.get(snapshot.textarea)?.revision === snapshot.revision
+    && snapshot.textarea.value === snapshot.code && snapshot.textarea.selectionStart === snapshot.anchorOffset
+    && snapshot.textarea.selectionEnd === snapshot.cursorOffset && snapshot.textarea.selectionDirection === snapshot.selectionDirection;
+}
 
-    if (inLineComment) {
-      out += ch;
-      if (ch === '\n') { inLineComment = false; out += pad(); }
-      i++; continue;
-    }
-    if (inComment) {
-      out += ch;
-      if (ch === '*' && nx === '/') { out += '/'; i += 2; inComment = false; continue; }
-      i++; continue;
-    }
-    if (inString) {
-      out += ch;
-      if (ch === '\\') { out += nx; i += 2; continue; }
-      if (ch === stringChar) inString = false;
-      i++; continue;
-    }
-    if (ch === '/' && nx === '/') { inLineComment = true; out += '//'; i += 2; continue; }
-    if (ch === '/' && nx === '*') { inComment = true; out += '/*'; i += 2; continue; }
-    if (ch === '"' || ch === "'" || ch === '`') { inString = true; stringChar = ch; out += ch; i++; continue; }
+function isCurrentEditor(snapshot, allowReadOnly = false) {
+  if (document.getElementById(snapshot.id) !== snapshot.textarea) return false;
+  if (snapshot.textarea.readOnly && !allowReadOnly) return false;
+  return snapshot.view ? sameViewState(snapshot) : sameTextareaState(snapshot);
+}
 
-    if (ch === '{') { out += '{\n'; indent++; out += pad(); i++; continue; }
-    if (ch === '}') {
-      indent--;
-      out = out.replace(/[ \t]+$/, '');
-      if (!out.endsWith('\n')) out += '\n';
-      out += pad() + '}'; i++;
-      if (nx && !/[;,.)\]}\s]/.test(nx)) { out += '\n' + pad(); }
-      continue;
-    }
-    if (ch === ';') { out += ';\n' + pad(); i++; continue; }
-    if (ch === ',' && indent > 0) {
-      out += ',';
-      i++;
-      let j = i;
-      while (j < code.length && /\s/.test(code[j])) j++;
-      if (code[j] === ')' || code[j] === ']' || code[j] === '}') { /* keep inline */ }
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      const trimmed = out.trimEnd();
-      if (trimmed.endsWith('\n') || out === '') {
-        // skip leading whitespace (indent managed explicitly)
-      } else {
-        out += ' ';
-      }
-      while (i < code.length && /\s/.test(code[i])) i++;
-      continue;
-    }
-    out += ch;
-    i++;
+function applyFormat(snapshot, result, automatic) {
+  rememberPresentation(snapshot.value, snapshot.code, snapshot.value.backing);
+  rememberPresentation(snapshot.value, result.formatted, snapshot.value.backing);
+  if (snapshot.view) {
+    const { scrollTop, scrollLeft } = snapshot.view.scrollDOM;
+    // Transaction is part of the bundled EditorState runtime, but not re-exported
+    // by this legacy bundle. Keep automatic presentation out of undo history.
+    const Transaction = snapshot.view.state.update({}).constructor;
+    snapshot.view.dispatch({ changes: { from: 0, to: snapshot.doc.length, insert: result.formatted },
+      selection: { anchor: result.anchorOffset, head: result.cursorOffset }, userEvent: PRESENTATION_EVENT,
+      annotations: Transaction.addToHistory.of(!automatic) });
+    snapshot.view.scrollDOM.scrollTop = scrollTop;
+    snapshot.view.scrollDOM.scrollLeft = scrollLeft;
+    return;
   }
-  return out.replace(/\n{3,}/g, '\n\n').trim();
+  const { scrollTop, scrollLeft } = snapshot.textarea;
+  snapshot.textarea.value = result.formatted;
+  snapshot.textarea.setSelectionRange(result.anchorOffset, result.cursorOffset, snapshot.selectionDirection);
+  snapshot.textarea.scrollTop = scrollTop;
+  snapshot.textarea.scrollLeft = scrollLeft;
+}
+
+function setFormatButtonBusy(button, snapshot, busy) {
+  if (button?.isConnected) button.disabled = busy || snapshot.textarea.readOnly;
+}
+
+function reportFormatError(snapshot, contextVersion, version, error) {
+  if (contextVersion() === version && isCurrentEditor(snapshot)) {
+    showToast(`Format failed: ${error.message.split('\n')[0]}`, true);
+  }
+}
+
+function canApplyFormat(snapshot, result, contextVersion, version, automatic) {
+  return contextVersion() === version && isCurrentEditor(snapshot, automatic) && result.formatted !== snapshot.code;
+}
+
+async function runFormat(snapshot, { language, contextVersion, automatic }) {
+  const version = contextVersion();
+  try {
+    const result = await formatSelection(snapshot.code, { language, cursorOffset: snapshot.cursorOffset, anchorOffset: snapshot.anchorOffset });
+    if (!canApplyFormat(snapshot, result, contextVersion, version, automatic)) return false;
+    applyFormat(snapshot, result, automatic);
+    return true;
+  } catch (error) {
+    if (!automatic) reportFormatError(snapshot, contextVersion, version, error);
+    return false;
+  }
+}
+
+export async function formatEditor(id, { language = 'javascript', contextVersion = () => 0, button, automatic = false } = {}) {
+  const snapshot = captureEditor(id, automatic);
+  if (!snapshot || formatting.has(snapshot.target)) return false;
+  formatting.add(snapshot.target);
+  setFormatButtonBusy(button, snapshot, true);
+  try {
+    return await runFormat(snapshot, { language, contextVersion, automatic });
+  } finally {
+    formatting.delete(snapshot.target);
+    setFormatButtonBusy(button, snapshot, false);
+  }
 }
 
 export function getEditorValue(id) {
-  return cmEditors[id]?.state.doc.toString() ?? document.getElementById(id)?.value ?? '';
+  const textarea = document.getElementById(id);
+  return editorValues.get(textarea)?.backing ?? textarea?.value ?? '';
 }
 
 export function setEditorValue(id, code) {
@@ -182,7 +230,7 @@ export function setEditorValue(id, code) {
     cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: code } });
   } else {
     const el = document.getElementById(id);
-    if (el) el.value = code;
+    if (el) { el.value = code; el.dispatchEvent(new Event('input', { bubbles: true })); }
   }
 }
 

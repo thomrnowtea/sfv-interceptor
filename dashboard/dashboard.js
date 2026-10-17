@@ -2,28 +2,55 @@ import { state, sortedRules }                          from './core/state.js';
 import { msg, showToast }                              from './core/utils.js';
 import { initCodeMirror, destroyEditors }              from './editor/editor.js';
 import { applyTheme, buildCustomVars, themeState, initTheme } from './ui/theme.js';
-import { fromRQ }                                      from './core/converters.js';
-import { renderNav, initNav, updateSelectButtons, initSidebar } from './ui/nav.js';
+import { initSources, renderSources, openSourceModal }  from './ui/sources.js';
+import { initImports, openImportModal }                 from './ui/imports.js';
+import { isRemoteRule }                                from '../shared/rule-schema.js';
+import { downloadRules }                               from './ui/exports.js';
+import { icon }                                       from '../shared/icons.js';
+import { renderNav, initNav, updateSelectButtons, initSidebar, closeRuleBrowser } from './ui/nav.js';
 import { buildEditorHTML, bindEditorEvents, initRuleEditor }    from './ui/rule-editor.js';
 
 // ── Coordination functions ────────────────────────────────────────────────────
 
 function showEmpty() {
+  state.view = 'rules';
+  state.currentId = null;
   state.ghostRule = null;
+  document.getElementById('btn-sources').classList.remove('active');
   destroyEditors();
   document.getElementById('main').innerHTML = `
     <div class="empty-main">
-      <div class="empty-icon">🛰️</div>
-      <h2>No rule selected</h2>
-      <p>Select a rule from the sidebar, or create a new one to start intercepting requests.</p>
-      <button class="btn-new-sidebar" style="max-width:200px;margin-top:4px" id="btn-new-empty">+ New Rule</button>
+      <div class="empty-icon">${icon('rules')}</div>
+      <h2>${state.allRules.length ? 'Choose a rule to inspect' : 'Your request workspace'}</h2>
+      <p>${state.allRules.length ? 'Select a local rule to edit, or inspect a remote rule and its published version.' : 'Mock a response, modify a request, or follow your team’s shared rules.'}</p>
+      <div class="empty-actions">
+        <button type="button" class="btn-save" id="btn-new-empty">${icon('plus')} New rule</button>
+        <button type="button" class="btn-close" id="btn-empty-import">${icon('download')} Import a copy</button>
+      </div>
+      <div class="empty-secondary">Have a shared JSON URL? <button type="button" id="btn-empty-subscribe">Subscribe for updates</button></div>
     </div>`;
   document.getElementById('btn-new-empty').addEventListener('click', newRule);
+  document.getElementById('btn-empty-import').addEventListener('click', openImportModal);
+  document.getElementById('btn-empty-subscribe').addEventListener('click', openSourceModal);
+  renderNav(document.getElementById('search').value);
 }
 
-function selectRule(id, scroll = true) {
+function showSources() {
+  state.view = 'sources';
+  state.currentId = null;
+  state.ghostRule = null;
+  destroyEditors();
+  renderNav(document.getElementById('search').value);
+  document.getElementById('btn-sources').classList.add('active');
+  renderSources();
+}
+
+function selectRule(id, scroll = true, keyboard = false) {
   const rule = state.allRules.find(r => r.id === id);
   if (!rule) return;
+  closeRuleBrowser();
+  state.view = 'rules';
+  document.getElementById('btn-sources').classList.remove('active');
   const prevScroll = !scroll ? (document.querySelector('.editor-body')?.scrollTop ?? 0) : 0;
   state.ghostRule = null;
   state.currentId = id;
@@ -33,6 +60,7 @@ function selectRule(id, scroll = true) {
   bindEditorEvents(rule, false);
   const eb = document.querySelector('.editor-body');
   if (eb) eb.scrollTop = scroll ? 0 : prevScroll;
+  if (keyboard) document.getElementById('f-name').focus({ preventScroll: true });
 }
 
 function updateGhost() {
@@ -45,6 +73,9 @@ function updateGhost() {
 }
 
 function newRule() {
+  state.view = 'rules';
+  state.origin = 'local';
+  document.getElementById('btn-sources').classList.remove('active');
   state.currentId = null;
   state.ghostRule = { name: '', resourceType: 'rest', urlPattern: '' };
   renderNav(document.getElementById('search').value);
@@ -52,50 +83,69 @@ function newRule() {
   const blank = { enabled: true, resourceType: 'rest' };
   document.getElementById('main').innerHTML = buildEditorHTML(blank);
   bindEditorEvents(blank, true);
-  setTimeout(() => {
-    document.getElementById('f-name')?.addEventListener('input', updateGhost);
-    document.querySelector('.pair-url')?.addEventListener('input', updateGhost);
-    document.querySelectorAll('#type-selector .type-btn').forEach(btn =>
-      btn.addEventListener('click', updateGhost)
-    );
-  }, 50);
 }
 
-let _refreshing = false;
-let _refreshPending = false;
+let refreshQueue = Promise.resolve();
 
-async function refresh() {
-  if (_refreshing) { _refreshPending = true; return; }
-  _refreshing = true;
-  try {
+function refresh() {
+  const next = refreshQueue.then(async () => {
     const res = await msg({ type: 'GET_RULES' });
     state.allRules = res.rules || [];
+    state.sources = res.sources || [];
+    const applicationError = document.getElementById('apply-error');
+    applicationError.textContent = res.applyError ? `${res.applyError}. Changes are saved; file interception needs to be reapplied.` : '';
+    applicationError.hidden = !res.applyError;
+    document.documentElement.style.setProperty('--apply-error-height', applicationError.offsetHeight + 'px');
+    const knownIds = new Set(state.allRules.map(rule => rule.id));
+    state.selectedIds = new Set([...state.selectedIds].filter(id => knownIds.has(id)));
+    document.getElementById('source-count').textContent = state.sources.length;
     renderNav(document.getElementById('search').value);
     const selectBtn = document.getElementById('btn-select-rules');
     if (selectBtn) selectBtn.disabled = state.allRules.length === 0;
-  } finally {
-    _refreshing = false;
-    if (_refreshPending) { _refreshPending = false; refresh(); }
-  }
+    updateSelectButtons();
+  });
+  refreshQueue = next.catch(() => {});
+  return next;
 }
 
 // ── Wire callbacks ────────────────────────────────────────────────────────────
 
 initNav({ onSelect: selectRule });
-initRuleEditor({ renderNav, refresh, selectRule, showEmpty, updateGhost });
+initRuleEditor({ renderNav, refresh, selectRule, showEmpty, updateGhost, showSources });
+initSources({ refresh, showSources });
+initImports({ refresh, subscribe: openSourceModal });
 initSidebar();
 initTheme();
 
 // ── Global events ─────────────────────────────────────────────────────────────
 
 document.getElementById('btn-new').addEventListener('click', newRule);
+document.getElementById('btn-new').innerHTML = `${icon('plus')} New rule`;
+document.getElementById('btn-theme').innerHTML = icon('theme');
+for (const id of ['import-modal-close', 'source-modal-close', 'theme-panel-close']) {
+  document.getElementById(id).innerHTML = icon('close');
+}
+document.getElementById('search-icon').innerHTML = icon('search');
+document.getElementById('import-file-icon').innerHTML = icon('file');
+document.getElementById('import-all').innerHTML = `${icon('download')} Import a copy`;
+document.getElementById('btn-sources').insertAdjacentHTML('afterbegin', icon('link'));
+document.getElementById('btn-sources').addEventListener('click', showSources);
 document.getElementById('search').addEventListener('input', e => renderNav(e.target.value));
+document.querySelectorAll('[data-origin]').forEach(button => {
+  button.addEventListener('click', () => {
+    state.origin = button.dataset.origin;
+    renderNav(document.getElementById('search').value);
+  });
+});
 
 // ── Sort controls ─────────────────────────────────────────────────────────────
 
 function updateSortUI() {
   document.querySelectorAll('.sort-btn').forEach(btn =>
-    btn.classList.toggle('active', btn.dataset.sort === state.sortKey)
+    {
+      btn.classList.toggle('active', btn.dataset.sort === state.sortKey);
+      btn.setAttribute('aria-pressed', String(btn.dataset.sort === state.sortKey));
+    }
   );
   const dirBtn = document.getElementById('sort-dir');
   if (dirBtn) {
@@ -158,28 +208,27 @@ document.getElementById('btn-deselect-rules').addEventListener('click', () => {
 });
 
 document.getElementById('select-all-rules').addEventListener('click', () => {
-  const allSelected = state.allRules.length > 0 && state.allRules.every(r => state.selectedIds.has(r.id));
-  state.selectedIds = allSelected ? new Set() : new Set(state.allRules.map(r => r.id));
+  const visible = [...document.querySelectorAll('#rules-nav .nav-rule[data-id]')].map(row => row.dataset.id);
+  const allSelected = visible.length > 0 && visible.every(id => state.selectedIds.has(id));
+  state.selectedIds = allSelected ? new Set() : new Set(visible);
   updateSelectButtons();
   renderNav(document.getElementById('search').value);
 });
 
-document.getElementById('export-selected').addEventListener('click', () => {
+document.getElementById('export-selected').addEventListener('click', event => {
   if (!state.selectedIds.size) { showToast('No rules selected', true); return; }
   const toExport = sortedRules().filter(r => state.selectedIds.has(r.id));
-  const blob = new Blob([JSON.stringify(toExport, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = 'sfv-interceptor-rules.json'; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-  showToast(`↑ Exported ${toExport.length} rule(s)`);
+  void downloadRules(toExport, event.currentTarget);
 });
 
 document.getElementById('delete-selected').addEventListener('click', async () => {
-  if (!state.selectedIds.size) return;
-  if (!confirm(`Delete ${state.selectedIds.size} rule(s)? This cannot be undone.`)) return;
-  for (const id of state.selectedIds) await msg({ type: 'DELETE_RULE', id });
-  state.customOrder = state.customOrder.filter(id => !state.selectedIds.has(id));
+  const localIds = new Set(state.allRules.filter(rule => state.selectedIds.has(rule.id) && !isRemoteRule(rule)).map(rule => rule.id));
+  if (!localIds.size) return;
+  if (!confirm(`Delete ${localIds.size} local rule(s)? This cannot be undone.`)) return;
+  try {
+    for (const id of localIds) await msg({ type: 'DELETE_RULE', id });
+  } catch (error) { showToast(error.message, true); return; }
+  state.customOrder = state.customOrder.filter(id => !localIds.has(id));
   chrome.storage.local.set({ sfvi_custom_order: state.customOrder });
   state.selectedIds = new Set();
   state.selectMode  = false;
@@ -194,85 +243,6 @@ document.getElementById('delete-selected').addEventListener('click', async () =>
 });
 
 // ── Import modal ──────────────────────────────────────────────────────────────
-
-async function processImportRaw(raw) {
-  if (!Array.isArray(raw)) { showToast('Expected JSON array', true); return; }
-  const isRQ = raw.length === 0 || (raw[0] && typeof raw[0] === 'object' && (raw[0].objectType === 'rule' || raw[0].ruleType));
-  const incoming = isRQ ? raw.map(fromRQ) : raw;
-  if (!incoming.length) { showToast('No rules found', true); return; }
-
-  const existingIds = new Set(state.allRules.map(r => r.id));
-  const conflicts   = incoming.filter(r => existingIds.has(r.id)).length;
-  const fresh       = incoming.length - conflicts;
-
-  let strategy = 'skip';
-  if (conflicts > 0) {
-    const overwrite = confirm(
-      `Importing ${incoming.length} rule(s):\n` +
-      `  • ${fresh} new\n` +
-      `  • ${conflicts} already exist (same ID)\n\n` +
-      `OK → overwrite existing\nCancel → keep existing, import only new`
-    );
-    strategy = overwrite ? 'overwrite' : 'skip';
-  }
-
-  try {
-    const res = await msg({ type: 'MERGE_RULES', rules: incoming, strategy });
-    await refresh();
-    showToast(`✓ ${res.added} added · ${res.updated} updated · ${res.skipped} skipped`);
-  } catch (e) {
-    showToast('Import failed: ' + (e.message || 'unknown error'), true);
-  }
-}
-
-const importModal    = document.getElementById('import-modal');
-const importUrlInput = document.getElementById('import-url-input');
-const importUrlBtn   = document.getElementById('import-from-url');
-
-function openImportModal()  { importModal.style.display = 'flex'; importUrlInput.value = ''; }
-function closeImportModal() { importModal.style.display = 'none'; }
-
-document.getElementById('import-all').addEventListener('click', openImportModal);
-document.getElementById('import-modal-close').addEventListener('click', closeImportModal);
-importModal.addEventListener('click', e => { if (e.target === importModal) closeImportModal(); });
-
-document.getElementById('import-from-file').addEventListener('click', () => {
-  closeImportModal();
-  document.getElementById('import-file').click();
-});
-
-document.getElementById('import-file').addEventListener('change', async e => {
-  const file = e.target.files[0]; if (!file) return; e.target.value = '';
-  let raw;
-  try { raw = JSON.parse(await file.text()); } catch { showToast('Invalid JSON', true); return; }
-  await processImportRaw(raw);
-});
-
-importUrlBtn.addEventListener('click', async () => {
-  const url = importUrlInput.value.trim();
-  if (!url) { showToast('Enter a URL', true); return; }
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:') { showToast('Only HTTPS URLs are allowed', true); return; }
-  } catch { showToast('Invalid URL', true); return; }
-  importUrlBtn.disabled = true; importUrlBtn.textContent = '...';
-  try {
-    const response = await fetch(url);
-    if (!response.ok) { showToast(`HTTP ${response.status}`, true); return; }
-    let raw;
-    try { raw = await response.json(); } catch { showToast('Response is not valid JSON', true); return; }
-    closeImportModal();
-    await processImportRaw(raw);
-  } catch (err) {
-    showToast('Fetch failed: ' + err.message, true);
-  } finally {
-    importUrlBtn.disabled = false; importUrlBtn.textContent = '↓ Fetch';
-  }
-});
-
-importUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') importUrlBtn.click(); });
-
-// ── Init ──────────────────────────────────────────────────────────────────────
 
 (async () => {
   initCodeMirror();
@@ -314,11 +284,7 @@ importUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') importU
   }
 
   if (action === 'export' && state.allRules.length) {
-    const blob = new Blob([JSON.stringify(state.allRules, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url; a.download = 'sfv-interceptor-rules.json'; a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    await downloadRules(state.allRules);
   }
 })();
 
@@ -327,9 +293,19 @@ importUrlInput.addEventListener('keydown', e => { if (e.key === 'Enter') importU
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'RULES_CHANGED') return;
   (async () => {
+    const previous = state.allRules.find(rule => rule.id === state.currentId);
     await refresh();
+    if (state.view === 'sources') {
+      if (!state.sourceActionPending && !document.activeElement?.closest('[data-edit-source]')) renderSources();
+      sendResponse({});
+      return;
+    }
     if (state.currentId) {
       const updated = state.allRules.find(r => r.id === state.currentId);
+      if (!updated) { showEmpty(); sendResponse({}); return; }
+      if (isRemoteRule(updated) && JSON.stringify(updated) !== JSON.stringify(previous)) {
+        selectRule(updated.id, false);
+      }
       if (updated) {
         const toggle = document.getElementById('f-enabled');
         if (toggle) toggle.checked = updated.enabled !== false;
@@ -341,6 +317,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
     }
     sendResponse({});
-  })();
+  })().catch(error => { showToast(error.message, true); sendResponse({}); });
   return true;
 });

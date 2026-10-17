@@ -1,5 +1,8 @@
 import { state, sortedRules } from '../core/state.js';
-import { esc, msg } from '../core/utils.js';
+import { isRemoteRule } from '../../shared/rule-schema.js';
+import { renderRuleList } from './rule-list.js';
+import { bindDialog } from '../../shared/dialogs.js';
+import { icon } from '../../shared/icons.js';
 
 let _onSelect = null;
 
@@ -33,99 +36,20 @@ export function updateSelectButtons() {
   const deleteBtn = document.getElementById('delete-selected');
   const allBtn    = document.getElementById('select-all-rules');
   if (exportBtn) exportBtn.textContent = count ? `↑ Export (${count})` : '↑ Export';
-  if (deleteBtn) deleteBtn.textContent = count ? `🗑 Delete (${count})` : '🗑 Delete';
+  const localCount = state.allRules.filter(rule => state.selectedIds.has(rule.id) && !isRemoteRule(rule)).length;
+  if (deleteBtn) {
+    deleteBtn.textContent = localCount ? `Delete local (${localCount})` : 'Delete local';
+    deleteBtn.disabled = !localCount;
+  }
   if (allBtn) {
-    const allSelected = state.allRules.length > 0 && state.allRules.every(r => state.selectedIds.has(r.id));
-    allBtn.textContent = allSelected ? '☐ None' : '☑ All';
+    const visible = [...document.querySelectorAll('#rules-nav .nav-rule[data-id]')].map(row => row.dataset.id);
+    const allSelected = visible.length > 0 && visible.every(id => state.selectedIds.has(id));
+    allBtn.textContent = allSelected ? 'None' : 'All visible';
   }
 }
 
 export function renderNav(filter = '') {
-  const nav = document.getElementById('rules-nav');
-  const q = filter.toLowerCase();
-  const list = sortedRules().filter(r => {
-    if (!q) return true;
-    if ((r.name || '').toLowerCase().includes(q)) return true;
-    return (r.pairs || []).some(p => (p.urlPattern || '').toLowerCase().includes(q));
-  });
-
-  const ghostHTML = state.ghostRule ? `
-    <div class="nav-rule ghost active">
-      <span class="nav-rule-type ${typeClass(state.ghostRule.resourceType || 'rest', state.ghostRule.resourceSubtype)}">${typeLabel(state.ghostRule.resourceType || 'rest', state.ghostRule.resourceSubtype)}</span>
-      <div class="nav-rule-info">
-        <div class="nav-rule-name">${esc(state.ghostRule.name || 'Untitled Rule')}</div>
-        <div class="nav-rule-url">${esc(state.ghostRule.urlPattern || '—')}</div>
-      </div>
-    </div>` : '';
-
-  if (!list.length && !ghostHTML) {
-    nav.innerHTML = `<div style="padding:18px 12px;color:var(--muted);font-size:11.5px;text-align:center">${state.allRules.length ? 'No matches.' : 'No rules yet.'}</div>${ghostHTML}`;
-    return;
-  }
-  nav.innerHTML = list.map(r => `
-    <div class="nav-rule ${navRuleClass(r.resourceType, r.resourceSubtype)} ${r.id === state.currentId && !state.selectMode ? 'active' : ''} ${r.enabled !== false ? '' : 'disabled'} ${state.selectMode && state.selectedIds.has(r.id) ? 'nav-selected' : ''}" data-id="${esc(r.id)}" ${state.dragSortMode ? 'draggable="true"' : ''}>
-      ${state.dragSortMode
-        ? `<span class="drag-handle" title="Drag to reorder">⠿</span>`
-        : state.selectMode
-          ? `<input type="checkbox" class="nav-checkbox" data-id="${esc(r.id)}" ${state.selectedIds.has(r.id) ? 'checked' : ''}
-               style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0;cursor:pointer;">`
-          : `<span class="nav-rule-type ${typeClass(r.resourceType, r.resourceSubtype)}">${typeLabel(r.resourceType, r.resourceSubtype)}</span>`
-      }
-      <div class="nav-rule-info">
-        <div class="nav-rule-name">${esc(r.name || 'Untitled')}</div>
-        <div class="nav-rule-url">${(() => {
-          const p = r.pairs || [];
-          if (!p.length || !p[0].urlPattern) return '—';
-          return esc(p[0].urlPattern) + (p.length > 1 ? ` <span style="color:var(--accent);font-size:9px">+${p.length-1}</span>` : '');
-        })()}</div>
-      </div>
-      ${!state.selectMode && !state.dragSortMode ? `<label class="toggle-sm" data-stop-prop="1">
-        <input type="checkbox" ${r.enabled !== false ? 'checked' : ''} data-toggle="${esc(r.id)}">
-        <div class="toggle-sm-track"><div class="toggle-sm-thumb"></div></div>
-      </label>` : ''}
-    </div>`).join('') + ghostHTML;
-
-  nav.querySelectorAll('.nav-rule').forEach(el =>
-    el.addEventListener('click', e => {
-      if (state.dragSortMode) return;
-      if (state.selectMode) {
-        const cb = el.querySelector('.nav-checkbox');
-        if (cb && e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
-        return;
-      }
-      if (_onSelect) _onSelect(el.dataset.id);
-    })
-  );
-
-  if (state.dragSortMode) bindDragSort(nav);
-
-  nav.querySelectorAll('.nav-checkbox').forEach(cb => {
-    cb.addEventListener('change', e => {
-      e.stopPropagation();
-      if (cb.checked) state.selectedIds.add(cb.dataset.id);
-      else            state.selectedIds.delete(cb.dataset.id);
-      updateSelectButtons();
-      const row = cb.closest('.nav-rule');
-      if (row) row.classList.toggle('nav-selected', cb.checked);
-    });
-  });
-  nav.querySelectorAll('[data-stop-prop]').forEach(label =>
-    label.addEventListener('click', e => e.stopPropagation())
-  );
-  nav.querySelectorAll('[data-toggle]').forEach(el =>
-    el.addEventListener('change', async e => {
-      e.stopPropagation();
-      const ruleId = el.dataset.toggle;
-      const res = await msg({ type: 'TOGGLE_RULE', id: ruleId });
-      const enabled = res?.enabled ?? false;
-      if (ruleId === state.currentId) {
-        const toggle = document.getElementById('f-enabled');
-        if (toggle) toggle.checked = enabled;
-        const hdr = document.getElementById('editor-header');
-        if (hdr) { hdr.classList.toggle('is-active', enabled); hdr.classList.toggle('is-inactive', !enabled); }
-      }
-    })
-  );
+  renderRuleList({ filter, onSelect: _onSelect, onDragSort: bindDragSort, updateSelectButtons });
 }
 
 function bindDragSort(nav) {
@@ -176,8 +100,8 @@ export function initSidebar() {
 
   if (sidebar && handle) {
     const KEY   = 'sfvi_sidebar_w';
-    const MIN_W = 180;
-    const MAX_W = () => Math.floor(window.innerWidth * 0.25);
+    const MIN_W = 220;
+    const MAX_W = () => Math.max(MIN_W, Math.floor(window.innerWidth * 0.4));
 
     const saved = parseInt(localStorage.getItem(KEY), 10);
     if (saved >= MIN_W) sidebar.style.width = Math.min(saved, MAX_W()) + 'px';
@@ -207,13 +131,37 @@ export function initSidebar() {
       const w = parseInt(sidebar.style.width, 10);
       if (w >= MIN_W) localStorage.setItem(KEY, w);
     });
+    window.addEventListener('resize', () => {
+      if (matchMedia('(max-width: 760px)').matches) return;
+      const width = sidebar.getBoundingClientRect().width;
+      sidebar.style.width = Math.min(Math.max(width, MIN_W), MAX_W()) + 'px';
+    });
   }
 
   const colBtn = document.getElementById('sidebar-collapse-btn');
-  if (colBtn && sidebar) {
-    colBtn.addEventListener('click', () => {
-      const isNowCollapsed = sidebar.classList.toggle('collapsed');
-      colBtn.textContent = isNowCollapsed ? '▼ Show Rules' : '▲ Hide Rules';
-    });
-  }
+  const body = document.getElementById('sidebar-body');
+  const drawer = document.getElementById('rules-drawer');
+  const drawerContent = document.getElementById('rules-drawer-content');
+  const narrow = matchMedia('(max-width: 760px)');
+  sidebar.querySelector('.sidebar-header').appendChild(colBtn);
+  colBtn.innerHTML = `${icon('rules')} Browse rules`;
+  document.getElementById('rules-drawer-close').innerHTML = icon('close');
+  bindDialog(drawer);
+  const placeNavigation = () => {
+    closeRuleBrowser();
+    (narrow.matches ? drawerContent : sidebar).appendChild(body);
+  };
+  placeNavigation();
+  narrow.addEventListener('change', placeNavigation);
+  colBtn.addEventListener('click', () => { drawer.showModal(); colBtn.setAttribute('aria-expanded', 'true'); });
+  document.getElementById('rules-drawer-close').addEventListener('click', closeRuleBrowser);
+  drawer.addEventListener('close', () => colBtn.setAttribute('aria-expanded', 'false'));
+  drawer.addEventListener('click', event => {
+    if (event.target.closest('#btn-sources, #import-all')) closeRuleBrowser();
+  }, true);
+}
+
+export function closeRuleBrowser() {
+  const drawer = document.getElementById('rules-drawer');
+  if (drawer?.open) drawer.close();
 }

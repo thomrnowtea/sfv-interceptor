@@ -7,9 +7,3 @@ export function setIcon(tabId, green) {
     chrome.action.setIcon({ tabId, path: green ? ICON_GREEN : ICON_BLUE }).catch(() => {});
   });
 }
-
-export function initIcons() {
-  chrome.tabs.onUpdated.addListener((tabId, info) => {
-    if (info.status === 'loading') setIcon(tabId, false);
-  });
-}

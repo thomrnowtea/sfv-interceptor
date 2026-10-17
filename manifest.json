@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "SFV Interceptor",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Modify, override, and mock HTTP requests, JS, and CSS in real time — no account required.",
   "permissions": [
     "declarativeNetRequest",
     "declarativeNetRequestWithHostAccess",
     "storage",
+    "alarms",
     "scripting",
     "tabs",
     "webNavigation"
@@ -45,7 +46,9 @@
     }
   ],
   "sandbox": {
-    "pages": ["sandbox/sandbox.html"]
+    "pages": [
+      "sandbox/sandbox.html"
+    ]
   },
   "web_accessible_resources": [
     {
@@ -55,7 +58,9 @@
         "sandbox/sandbox.js",
         "icons/icon16g.png",
         "icons/icon48g.png",
-        "icons/icon128g.png"
+        "icons/icon128g.png",
+        "shared/themes.js",
+        "shared/fonts/manrope-latin-wght-normal.woff2"
       ],
       "matches": [
         "<all_urls>"

@@ -1,3 +1,4 @@
+import { bindDialog } from '../../shared/dialogs.js';
 import { getCSSVar, esc } from './utils.js';
 
 const RISK_PATTERNS = [
@@ -200,9 +201,9 @@ export function showAllRisksPopup(highlightIds) {
   document.getElementById('sfvi-allrisks-popup')?.remove();
 
   const SEV_META = {
-    3: { key:'CRITICAL', color:'#f87171', dim:'rgba(248,113,113,0.15)', bg:'rgba(248,113,113,0.10)' },
-    2: { key:'HIGH',     color:'#f59e0b', dim:'rgba(245,158,11,0.15)',  bg:'rgba(245,158,11,0.10)'  },
-    1: { key:'MEDIUM',   color:'#60a5fa', dim:'rgba(96,165,250,0.15)',  bg:'rgba(96,165,250,0.10)'  },
+    3: { key:'CRITICAL', color:getCSSVar('--danger'), dim:'rgba(248,113,113,0.15)', bg:'rgba(248,113,113,0.10)' },
+    2: { key:'HIGH',     color:getCSSVar('--orange'), dim:'rgba(245,158,11,0.15)',  bg:'rgba(245,158,11,0.10)'  },
+    1: { key:'MEDIUM',   color:getCSSVar('--accent-link'), dim:'rgba(96,165,250,0.15)',  bg:'rgba(96,165,250,0.10)'  },
   };
 
   const _bg    = getCSSVar('--surface');
@@ -246,7 +247,7 @@ export function showAllRisksPopup(highlightIds) {
           <div style="font-size:11px;color:${active ? _txt3 : _muted};line-height:1.55;margin-bottom:4px">
             ${esc(r.why)}
           </div>
-          <code style="font-size:10px;color:${_muted};font-family:'JetBrains Mono','Fira Code',monospace">
+          <code style="font-size:10px;color:${_muted};font-family:var(--mono)">
             ${esc(r.example)}
           </code>
         </div>`;
@@ -272,7 +273,8 @@ export function showAllRisksPopup(highlightIds) {
 
   const totalDetected = highlight.size;
 
-  const popup = document.createElement('div');
+  const popup = document.createElement('dialog');
+  popup.setAttribute('aria-label','Risk flag reference');
   popup.id = 'sfvi-allrisks-popup';
   popup.innerHTML = `
     <div id="sfvi-allrisks-bd" style="position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.4)"></div>
@@ -292,7 +294,7 @@ export function showAllRisksPopup(highlightIds) {
           <span style="font-size:10px;color:${_txt3};margin-left:8px">
             ${RISK_PATTERNS.length} patterns ·
             ${totalDetected
-              ? `<span style="color:#f87171;font-weight:600">${totalDetected} detected</span>`
+              ? `<span style="color:var(--danger);font-weight:600">${totalDetected} detected</span>`
               : 'none detected'}
           </span>
         </div>
@@ -303,17 +305,28 @@ export function showAllRisksPopup(highlightIds) {
       </div>
       <div style="
         overflow-y:auto;padding:14px 16px;flex:1;
-        font-family:'JetBrains Mono','Fira Code',monospace;
+        font-family:var(--mono);
         scrollbar-width:thin;scrollbar-color:${_bdr} transparent;
       ">${groups}</div>
     </div>`;
 
+  const panel=popup.lastElementChild;
+  popup.replaceChildren(...panel.childNodes);
+  const scroll=popup.lastElementChild;
+  scroll.classList.add('risk-reference-scroll');
+  scroll.tabIndex=0;
+  scroll.setAttribute('role','region');
+  scroll.setAttribute('aria-label','Risk flag descriptions');
+  const close=popup.querySelector('#sfvi-allrisks-close');
+  close.textContent='Close';
+  close.setAttribute('aria-label','Close risk reference');
+  close.style.fontSize='13px';
+  close.style.minHeight='44px';
+  close.addEventListener('click',() => popup.close());
+  popup.addEventListener('close',() => popup.remove(),{once:true});
+  bindDialog(popup);
   document.body.appendChild(popup);
-  const close = () => { document.removeEventListener('keydown', onKey); popup.remove(); };
-  function onKey(e) { if (e.key === 'Escape') close(); }
-  document.getElementById('sfvi-allrisks-close').addEventListener('click', close);
-  document.getElementById('sfvi-allrisks-bd').addEventListener('click', close);
-  document.addEventListener('keydown', onKey);
+  popup.showModal();
 }
 
 export function updateRiskBar() {
@@ -363,7 +376,7 @@ export function updateRiskBar() {
     <div style="
       margin-top:6px;
       background:${cfg.bg};border:1px solid ${cfg.border};border-radius:6px;
-      padding:8px 11px;font-family:'JetBrains Mono','Fira Code',monospace;
+      padding:8px 11px;font-family:var(--mono);
     ">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:${risks.length ? '8px' : '0'}">
         <span style="
@@ -409,7 +422,7 @@ export function updateRiskBar() {
             </span>`;
         }).join('')}
       </div>
-      <div style="color:${getCSSVar('--muted')};font-size:10px;font-family:sans-serif">
+      <div style="color:${getCSSVar('--muted')};font-size:10px;font-family:var(--font-sans)">
         Hover badge for details · confirmed on save
       </div>` : ''}
     </div>`;
@@ -429,104 +442,27 @@ export function updateRiskBar() {
 }
 
 export function showSecurityWarning(risks) {
-  return new Promise((resolve) => {
-    document.getElementById('sfvi-sec-modal')?.remove();
-
-    const maxSev = riskSeverity(risks);
-    const borderColor = maxSev === 3 ? '#f87171' : '#f59e0b';
-    const titleColor  = maxSev === 3 ? '#f87171' : '#f59e0b';
-    const titleText   = maxSev === 3 ? 'Critical risk detected' : 'Potentially risky code detected';
-
-    const SEV_BADGE = {
-      3: { color:'#f87171', bg:'rgba(248,113,113,0.10)', border:'rgba(248,113,113,0.28)', key:'CRITICAL' },
-      2: { color:'#f59e0b', bg:'rgba(245,158,11,0.10)',  border:'rgba(245,158,11,0.28)',  key:'HIGH'     },
-      1: { color:'#60a5fa', bg:'rgba(96,165,250,0.10)',  border:'rgba(96,165,250,0.28)',  key:'MEDIUM'   },
-    };
-
-    const _panelBg  = getCSSVar('--surface')  || '#0d0f18';
-    const _mutedTxt = getCSSVar('--text3')    || '#6b7280';
-    const _bdr2     = getCSSVar('--border2')  || '#1e2130';
-
-    const modal = document.createElement('div');
-    modal.id = 'sfvi-sec-modal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center';
-    modal.innerHTML = `
-      <div style="position:absolute;inset:0;background:rgba(0,0,0,.6)"></div>
-      <div style="
-        position:relative;
-        background:${_panelBg};border:1px solid ${borderColor}66;border-radius:10px;
-        padding:22px 24px;max-width:480px;width:calc(100% - 32px);
-        box-shadow:0 12px 48px rgba(0,0,0,.8);
-        font-family:'JetBrains Mono','Fira Code',monospace;
-      ">
-        <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
-          <span style="font-size:18px;line-height:1">⚠</span>
-          <span style="font-size:14px;font-weight:700;color:${titleColor}">${titleText}</span>
-        </div>
-        <p style="font-size:12px;color:${_mutedTxt};line-height:1.6;margin:0 0 13px;font-family:sans-serif">
-          The following patterns were detected. Only save this rule if you wrote it yourself or fully trust the source.
-        </p>
-        <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px">
-          ${risks.map(r => {
-            const bc = SEV_BADGE[r.sev];
-            return `
-              <div style="
-                background:${bc.bg};border:1px solid ${bc.border};
-                border-radius:6px;padding:8px 11px;
-              ">
-                <div style="display:flex;align-items:center;gap:7px;margin-bottom:3px">
-                  <span style="
-                    font-size:8.5px;font-weight:700;letter-spacing:.08em;
-                    color:${bc.color};background:${bc.border};
-                    border-radius:3px;padding:1px 5px;
-                  ">${bc.key}</span>
-                  <span style="font-size:11.5px;font-weight:600;color:${bc.color}">${esc(r.label)}</span>
-                </div>
-                <div style="font-size:11px;color:${_mutedTxt};line-height:1.5;font-family:sans-serif">${esc(r.why)}</div>
-              </div>`;
-          }).join('')}
-        </div>
-        <label style="display:flex;align-items:flex-start;gap:8px;margin-bottom:16px;cursor:pointer">
-          <input type="checkbox" id="sfvi-sec-accept" style="margin-top:2px;accent-color:${borderColor}">
-          <span style="font-size:12px;color:${_mutedTxt};line-height:1.5;font-family:sans-serif">
-            I understand the risks and take responsibility for this rule
-          </span>
-        </label>
-        <div style="display:flex;justify-content:flex-end;gap:9px">
-          <button id="sfvi-sec-cancel" style="
-            background:transparent;border:1px solid ${_bdr2};color:${_mutedTxt};
-            padding:7px 16px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;
-          ">Cancel</button>
-          <button id="sfvi-sec-save" disabled style="
-            background:#1a0a0a;border:1px solid ${borderColor}44;
-            color:${titleColor};opacity:.35;
-            padding:7px 16px;border-radius:6px;font-size:12px;cursor:not-allowed;font-family:inherit;
-            transition:opacity .15s,background .12s;
-          ">Save anyway</button>
-        </div>
-      </div>`;
-
+  return new Promise(resolve => {
+    document.getElementById('sfvi-sec-modal')?.close();
+    const modal=document.createElement('dialog');
+    modal.id='sfvi-sec-modal';
+    modal.className='security-warning';
+    modal.setAttribute('aria-labelledby','security-warning-title');
+    modal.setAttribute('aria-describedby','security-warning-description');
+    const title=riskSeverity(risks) === 3 ? 'Critical risk detected' : 'Potentially risky code detected';
+    modal.innerHTML=`
+      <h2 id="security-warning-title">${title}</h2>
+      <p id="security-warning-description">Only save this rule if you wrote it yourself or trust the source.</p>
+      <ul class="security-findings">${risks.map(risk => `<li><strong>${esc(risk.label)}</strong><p>${esc(risk.why)}</p></li>`).join('')}</ul>
+      <label class="security-accept"><input type="checkbox" id="sfvi-sec-accept"><span>I understand the risks and take responsibility for this rule</span></label>
+      <div class="dialog-actions"><button type="button" class="btn-close" id="sfvi-sec-cancel">Cancel</button><button type="button" class="btn-save" id="sfvi-sec-save" disabled>Save anyway</button></div>`;
+    bindDialog(modal);
+    modal.querySelector('#sfvi-sec-accept').addEventListener('change',event => { modal.querySelector('#sfvi-sec-save').disabled=!event.target.checked; });
+    modal.querySelector('#sfvi-sec-cancel').addEventListener('click',() => modal.close('cancel'));
+    modal.querySelector('#sfvi-sec-save').addEventListener('click',() => modal.close('save'));
+    modal.addEventListener('close',() => { const accepted=modal.returnValue === 'save'; modal.remove(); resolve(accepted); },{once:true});
     document.body.appendChild(modal);
-
-    const acceptBox = modal.querySelector('#sfvi-sec-accept');
-    const saveBtn   = modal.querySelector('#sfvi-sec-save');
-    const cancelBtn = modal.querySelector('#sfvi-sec-cancel');
-    const backdrop  = modal.querySelector('div[style*="position:absolute"]');
-
-    acceptBox.addEventListener('change', () => {
-      saveBtn.disabled         = !acceptBox.checked;
-      saveBtn.style.opacity    = acceptBox.checked ? '1' : '.35';
-      saveBtn.style.cursor     = acceptBox.checked ? 'pointer' : 'not-allowed';
-      saveBtn.style.background = acceptBox.checked ? '#3b0f0f' : '#1a0a0a';
-    });
-    function onKey(e) { if (e.key === 'Escape') dismiss(); }
-    const dismiss = () => { document.removeEventListener('keydown', onKey); modal.remove(); resolve(false); };
-    saveBtn.addEventListener('click', () => { document.removeEventListener('keydown', onKey); modal.remove(); resolve(true); });
-    cancelBtn.addEventListener('click', dismiss);
-    cancelBtn.addEventListener('mouseenter', () => { cancelBtn.style.borderColor = getCSSVar('--text3'); cancelBtn.style.color = getCSSVar('--text2'); });
-    cancelBtn.addEventListener('mouseleave', () => { cancelBtn.style.borderColor = _bdr2; cancelBtn.style.color = _mutedTxt; });
-    backdrop.addEventListener('click', dismiss);
-    document.addEventListener('keydown', onKey);
-    cancelBtn.focus();
+    modal.showModal();
+    modal.querySelector('#sfvi-sec-cancel').focus();
   });
 }

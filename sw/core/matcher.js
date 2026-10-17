@@ -1,22 +1,38 @@
+function escapeRegex(value) {
+  return value.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
+}
+
+function wildcardRegex(value) {
+  return '^' + value.split('*').map(escapeRegex).join('.*') + '$';
+}
+
 export function urlMatchesPair(url, pair) {
-  const pat = pair.urlPattern || '', op = pair.urlOperator || 'Contains';
-  const cs  = pair.caseSensitive || false;
-  if (!pat) return false;
-  const u = cs ? url : url.toLowerCase();
-  const p = cs ? pat : pat.toLowerCase();
-  if (op === 'Equals')   return u === p;
-  if (op === 'Contains') return u.includes(p);
-  if (op === 'Regex')    { try { return new RegExp(pat, cs ? '' : 'i').test(url); } catch { return false; } }
-  const re = '^' + p.replace(/[.+?^${}()|[\]\\-]/g, '\\$&').replace(/\*/g, '.*') + '$';
-  try { return new RegExp(re).test(u); } catch { return false; }
+  const pattern = pair.urlPattern || '';
+  const operator = pair.urlOperator || 'Contains';
+  if (!pattern) return false;
+  const candidate = normalizedCase(url, pair.caseSensitive);
+  const normalized = normalizedCase(pattern, pair.caseSensitive);
+  if (operator === 'Equals') return candidate === normalized;
+  if (operator === 'Contains') return candidate.includes(normalized);
+  const expression = operator === 'Regex' ? pattern : wildcardRegex(pattern);
+  return testRegex(expression, url, pair.caseSensitive);
+}
+
+function normalizedCase(value, caseSensitive) {
+  return caseSensitive ? value : value.toLowerCase();
+}
+
+function testRegex(expression, url, caseSensitive) {
+  try { return new RegExp(expression, caseSensitive ? '' : 'i').test(url); }
+  catch { return false; }
 }
 
 export function pairToRegexFilter(pair) {
-  const pat = pair.urlPattern || '', op = pair.urlOperator || 'Contains';
-  if (!pat) return null;
-  if (op === 'Regex')    return pat;
-  const escapeNoStar = s => s.replace(/[.+?^${}()|[\]\\-]/g, '\\$&');
-  if (op === 'Equals')   return '^' + escapeNoStar(pat) + '$';
-  if (op === 'Wildcard') return escapeNoStar(pat).replace(/\*/g, '.*');
-  return escapeNoStar(pat);
+  const pattern = pair.urlPattern || '';
+  const operator = pair.urlOperator || 'Contains';
+  if (!pattern) return null;
+  if (operator === 'Regex') return pattern;
+  if (operator === 'Equals') return '^' + escapeRegex(pattern) + '$';
+  if (operator === 'Wildcard') return wildcardRegex(pattern);
+  return escapeRegex(pattern);
 }

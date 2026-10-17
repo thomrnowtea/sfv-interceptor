@@ -1,1 +1,8 @@
 .claude
+.codex
+AGENTS.md
+node_modules/
+test-results/
+playwright-report/
+.artifacts/
+dist/

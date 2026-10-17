@@ -2,6 +2,10 @@ const _subOrder = { html: 0, css: 1, js: 2 };
 
 export const state = {
   allRules:    [],
+  sources:     [],
+  view:        'rules',
+  origin:      'all',
+  sourceActionPending: false,
   sortKey:     'custom',
   sortDir:     'asc',
   customOrder: [],

@@ -1,11 +1,14 @@
-import { initIcons }      from './sw/handlers/icons.js';
-import { rebuildDNR }     from './sw/handlers/dnr.js';
+import { initActivity }   from './sw/core/activity.js';
 import { initNavigation } from './sw/handlers/navigation.js';
-import { initMessaging }  from './sw/handlers/messaging.js';
+import { initMessaging, publishRulesChanged } from './sw/handlers/messaging.js';
+import { initSourceSync } from './sw/core/sources.js';
 
-initIcons();
+initActivity();
 initNavigation();
 initMessaging();
+initSourceSync(publishRulesChanged);
 
-chrome.runtime.onInstalled.addListener(() => rebuildDNR());
-chrome.runtime.onStartup.addListener(()   => rebuildDNR());
+const reconcileRules = () => publishRulesChanged().catch(error => console.error('[SFV-I SW]', error.message));
+chrome.runtime.onInstalled.addListener(reconcileRules);
+chrome.runtime.onStartup.addListener(reconcileRules);
+reconcileRules();

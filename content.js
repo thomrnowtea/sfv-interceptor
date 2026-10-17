@@ -5,52 +5,55 @@
 'use strict';
 
 (async () => {
-  let data;
-  try { data = await chrome.runtime.sendMessage({ type: 'GET_API_RULES' }); }
-  catch(e) { return; }
-
-  if (!data?.rules?.length) return;
-
-  const _origin = location.origin || '*';
-
-  async function sendTheme() {
+  const origin = location.origin || '*';
+  const themes = import(chrome.runtime.getURL('shared/themes.js'));
+  const font = fetch(chrome.runtime.getURL('shared/fonts/manrope-latin-wght-normal.woff2')).then(response => {
+    if (!response.ok) throw new Error('Font unavailable');
+    return response.arrayBuffer();
+  }).catch(() => null);
+  async function sendPresentation() {
     try {
-      const td = await chrome.storage.local.get('sfvi_theme_vars');
-      if (td.sfvi_theme_vars) {
-        window.postMessage({ type: '__sfvi_theme__', vars: td.sfvi_theme_vars }, _origin);
-      }
+      const [themeModule, stored] = await Promise.all([themes, chrome.storage.local.get(['sfvi_theme','sfvi_theme_vars','sfvi_theme_custom'])]);
+      window.postMessage({type:'__sfvi_theme__',vars:themeModule.resolveTheme(stored)},origin);
+    } catch {}
+    try { const bytes=await font; if (bytes) window.postMessage({type:'__sfvi_font__',bytes},origin); } catch {}
+  }
+  window.addEventListener('message', event => {
+    if (event.source === window && event.data?.type === '__sfvi_hook_ready__') sendPresentation();
+  });
+  chrome.storage.onChanged.addListener((changes,area) => {
+    if (area === 'local' && (changes.sfvi_theme || changes.sfvi_theme_vars || changes.sfvi_theme_custom)) sendPresentation();
+  });
+  sendPresentation();
+  let data, handshake = 0;
+  const send = () => {
+    if (data) window.postMessage({type:'__sfvi_hook_data__',apis:data.rules,activity:data.activity},origin);
+  };
+  async function refreshRules() {
+    const request = ++handshake;
+    try {
+      const next = await chrome.runtime.sendMessage({type:'GET_API_RULES'});
+      if (request !== handshake || !next?.rules) return;
+      data = next;
+      if (data.rules.length) createSandboxIframe();
+      send();
     } catch {}
   }
-
-  function send() {
-    window.postMessage({ type: '__sfvi_hook_data__', patches: {}, scripts: [], apis: data.rules }, _origin);
-  }
-  createSandboxIframe();
-  send();
-  sendTheme();
-  window.addEventListener('message', function h(ev) {
-    if (ev?.data?.type === '__sfvi_hook_ready__') {
-      window.removeEventListener('message', h); send(); sendTheme();
-    }
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type === 'ACTIVITY_CYCLE_CHANGED') refreshRules();
   });
+  window.addEventListener('pageshow', event => { if (event.persisted) refreshRules(); });
+  window.addEventListener('message',event => {
+    if (event.source === window && event.data?.type === '__sfvi_hook_ready__') send();
+  });
+  refreshRules();
 })();
 
-let _lastRuleApplied = 0;
-window.addEventListener('__sfvi_applied__', () => {
-  const now = Date.now();
-  if (now - _lastRuleApplied < 500) return;
-  _lastRuleApplied = now;
-  try { chrome.runtime.sendMessage({ type: 'RULE_APPLIED' }).catch(() => {}); } catch {}
+window.addEventListener('__sfvi_applied__', event => {
+  const detail = event.detail;
+  if (!detail || typeof detail.ruleId !== 'string') return;
+  try { chrome.runtime.sendMessage({ type: 'RULE_APPLIED', ruleId: detail.ruleId, pairId: detail.pairId, activity: detail.activity }).catch(() => {}); } catch {}
 });
-
-try {
-  const _origin2 = location.origin || '*';
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.sfvi_theme_vars) {
-      window.postMessage({ type: '__sfvi_theme__', vars: changes.sfvi_theme_vars.newValue }, _origin2);
-    }
-  });
-} catch {}
 
 function createSandboxIframe() {
   if (document.getElementById('__sfvi_sandbox__')) return;

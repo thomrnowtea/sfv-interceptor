@@ -1,4 +1,8 @@
-export async function msg(d) { return chrome.runtime.sendMessage(d); }
+export async function msg(data) {
+  const response = await chrome.runtime.sendMessage(data);
+  if (response?.error) throw new Error(response.error);
+  return response;
+}
 
 export function esc(s) {
   return String(s ?? '')

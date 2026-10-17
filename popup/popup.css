@@ -1,0 +1,66 @@
+/* Chrome negotiates the action popup size from this root's intrinsic bounds.
+   Keep that size independent of its initial 25px viewport. */
+html { width: 360px; height: 500px; overflow: hidden; }
+body { width: min(360px, 100vw); height: min(500px, 100dvh); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid transparent; border-radius: 7px; min-height: 32px; padding: 5px 10px; color: var(--text2); background: transparent; font-size: 12px; font-weight: 600; }
+@media (hover: hover) and (pointer: fine) { button:hover:not(:disabled) { background: var(--surface3); } }
+header { padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-shrink: 0; }
+.logo { display: flex; align-items: center; gap: 9px; }
+.logo-icon { width: 29px; height: 29px; border-radius: 8px; }
+.logo-text { font-weight: 600; font-size: 14px; letter-spacing: -.3px; }
+.logo-text span { display: none; }
+.btn-primary { background: var(--accent-action); color: var(--accent-text); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+.tabs { display: flex; padding: 3px; margin: 0 12px 10px; background: var(--surface3); border-radius: 8px; flex-shrink: 0; }
+.tab { flex: 1; font-size: 12px; font-weight: 400; min-height: 28px; cursor: pointer; }
+.tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.search-row { margin: 0 12px 8px; position: relative; flex-shrink: 0; }
+.search-row-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text3); pointer-events: none; }
+.search-row-input { width: 100%; min-height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); padding: 7px 10px 7px 34px; color: var(--text); font-size: 12px; }
+.rules-list { padding: 0 6px 6px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.rule-item { display: flex; align-items: center; gap: 8px; padding: 8px 6px; min-height: 56px; border-radius: 7px; }
+.rule-item.applied { --applied-green: #34d399; --applied-ink: #071a12; --text: var(--applied-ink); --text2: var(--applied-ink); --text3: var(--applied-ink); --accent: var(--applied-ink); background: var(--applied-green); color: var(--applied-ink); }
+.rule-item.applied .rule-type-badge { position: relative; background: var(--applied-ink); color: var(--applied-green); }
+.rule-applied { position: absolute; right: -3px; bottom: -3px; width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; background: var(--applied-ink); color: var(--applied-green); font: 700 9px var(--font-sans); }
+.rule-item.applied .toggle input:checked ~ .toggle-track { background: var(--applied-ink); }
+.rule-item.applied .toggle-thumb { background: var(--applied-green); }
+@media (hover: hover) and (pointer: fine) { .rule-item:hover:not(.applied) { background: var(--surface2); } }
+.rule-item.disabled .rule-name { color: var(--text3); font-weight: 400; }
+.rule-type-badge { width: 30px; height: 26px; display: grid; place-items: center; flex-shrink: 0; border-radius: 6px; font: 9px var(--mono); }
+.type-rest { color: var(--t-rest-c); background: var(--t-rest-bg); }
+.type-graphql { color: var(--t-gql-c); background: var(--t-gql-bg); }
+.type-html, .type-htm-sub { color: var(--t-html-c); background: var(--t-html-bg); }
+.type-js { color: var(--t-js-c); background: var(--t-js-bg); }
+.type-css { color: var(--t-css-c); background: var(--t-css-bg); }
+.rule-info { flex: 1; min-width: 0; }
+.rule-heading { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.rule-version { flex-shrink: 0; color: var(--text3); font-size: 10px; max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rule-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rule-url { color: var(--text3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.rule-meta { color: var(--text3); font-size: 10px; margin-top: 3px; display: flex; align-items: center; gap: 4px; }
+.rule-meta .icon { width: 11px; height: 11px; }
+.rule-meta { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rule-actions { display: flex; align-items: center; flex-shrink: 0; }
+.toggle { width: 30px; height: 32px; display: block; position: relative; }
+.toggle input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; z-index: 1; cursor: pointer; }
+.toggle-track { position: absolute; inset: 8px 0 auto; height: 17px; border-radius: 12px; background: var(--border2); }
+.toggle-thumb { display: block; width: 13px; height: 13px; margin: 2px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.15); transition: transform 150ms var(--ease-out); }
+.toggle input:checked ~ .toggle-track { background: var(--accent); }
+.toggle input:checked ~ .toggle-track .toggle-thumb { transform: translateX(13px); }
+.toggle:has(input:focus-visible) { outline: 2px solid var(--accent); border-radius: 5px; }
+.empty { padding: 28px 16px; text-align: center; }
+.empty-icon { color: var(--text3); margin-bottom: 10px; }
+.empty-icon .icon { width: 32px; height: 32px; stroke-width: 1.2; }
+.empty-title { font-weight: 600; font-size: 14px; }
+.empty p { margin: 7px 0 14px; color: var(--text3); font-size: 13px; }
+footer { border-top: 1px solid var(--border); padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-shrink: 0; }
+.stats { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+.stats b { font-weight: 600; color: var(--text2); }
+.btn-sm { font-weight: 400; background: var(--surface2); font-size: 11px; }
+.popup-error { padding: 4px 12px 10px; margin: 0; color: var(--danger); font-size: 12px; flex-shrink: 0; overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  input { font-size: 16px; }
+  button, .toggle { min-height: 44px; }
+  .toggle { width: 44px; }
+  .toggle-track { inset: 14px 7px auto; }
+}

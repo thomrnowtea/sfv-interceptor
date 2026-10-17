@@ -1,5 +1,5 @@
 // page-hook.js — MAIN world (injected via chrome.scripting executeScript files:[])
-// CSP-exempt: extension files injected via scripting API bypass all page CSP.
+// Injected by the extension; page font and style policies still need explicit handling.
 
 (function () {
   'use strict';
@@ -59,211 +59,186 @@
   // :host CSS for position:fixed + CSS transition triggered by class toggle.
   function _initToasts() {
     const TAG = 'sfvi-t';
+    const cards = [];
+    const states = new WeakMap();
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(`
+      :host { display:block; width:100%; opacity:0; transition:opacity 180ms ease; pointer-events:auto; }
+      :host(.sfvi-in) { opacity:1; }
+      :host(.sfvi-out) { opacity:0; transition-duration:120ms; }
+      * { box-sizing:border-box; }
+      #c { position:relative; display:grid; grid-template-columns:22px minmax(0,1fr); gap:10px; width:100%; padding:14px; overflow:hidden; appearance:none; border:1px solid var(--sfvi-border2,#363b52); border-radius:12px; background:var(--sfvi-surface,#1c1e26); color:var(--sfvi-text,#e2e4f0); box-shadow:0 8px 24px rgba(0,0,0,.22); font:400 12px/1.5 'SFVI Manrope',Manrope,sans-serif; text-align:left; cursor:pointer; touch-action:manipulation; }
+      .mark { color:var(--ac,#22d3ee); margin-top:1px; }
+      svg { display:block; width:20px; height:20px; }
+      .status { display:block; color:var(--sfvi-text2,#c0c4d8); font-size:11px; }
+      .title { display:block; font-size:13px; line-height:1.4; font-weight:600; overflow-wrap:anywhere; margin-top:2px; }
+      .subtitle { display:block; color:var(--sfvi-text2,#c0c4d8); font-size:11px; margin-top:4px; overflow-wrap:anywhere; }
+      .progress { position:absolute; left:0; right:0; bottom:0; height:3px; pointer-events:none; background:var(--sfvi-surface3,#292c38); }
+      .progress-fill { display:block; height:100%; background:var(--ac,#22d3ee); transform-origin:left; }
+      #c:focus-visible { outline:2px solid var(--ac,#22d3ee); outline-offset:-3px; }
+      #c:active { background:var(--sfvi-surface2,#22252f); }
+      @media(hover:hover) and (pointer:fine) { #c:hover { border-color:var(--ac,#22d3ee); } }
+      @media(prefers-reduced-motion:reduce) { :host,:host(.sfvi-in),:host(.sfvi-out) { transform:none; transition:none; } }
+      @media(forced-colors:active) { #c { border:1px solid CanvasText; color:ButtonText; } .progress-fill { background:Highlight; } }
+    `);
+
+    const wrap = document.createElement('div');
+    wrap.dataset.sfviNotifications = '';
+    const properties = {
+      position:'fixed', bottom:'max(12px, env(safe-area-inset-bottom))', right:'max(12px, env(safe-area-inset-right))',
+      width:'min(320px, calc(100vw - 24px))', 'max-height':'calc(100dvh - 24px)', 'overflow-y':'auto', 'overflow-x':'hidden',
+      'z-index':'2147483647', 'pointer-events':'none', display:'flex', 'flex-direction':'column', gap:'8px',
+      border:'none', background:'transparent', padding:'0', margin:'0', 'overscroll-behavior':'contain',
+    };
+    for (const [key, value] of Object.entries(properties)) wrap.style.setProperty(key, value, 'important');
+    _s.toastWrap = wrap;
+    for (const [key, value] of Object.entries(_s.toastTheme || {})) wrap.style.setProperty(key, value);
+    const announcement = document.createElement('div');
+    announcement.setAttribute('role', 'status');
+    announcement.setAttribute('aria-live', 'polite');
+    announcement.setAttribute('aria-atomic', 'true');
+    announcement.style.cssText = 'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap';
+    wrap.appendChild(announcement);
+    let announceTimer;
+
+    function svg(path) {
+      const element = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      for (const [key, value] of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.7','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'})) element.setAttribute(key,value);
+      const line = document.createElementNS('http://www.w3.org/2000/svg','path');
+      line.setAttribute('d',path);
+      element.appendChild(line);
+      return element;
+    }
+
+    function removeCard(card) {
+      const index = cards.indexOf(card);
+      if (index !== -1) cards.splice(index,1);
+    }
 
     if (!customElements.get(TAG)) {
-      const CSS = `
-        :host {
-          display: block;
-          width: 100%;
-          transform: translateX(calc(100% + 24px));
-          opacity: 0;
-          transition: transform 0.45s cubic-bezier(0.3, -0.1, 1, 1), opacity 0.3s ease;
-          pointer-events: auto;
-          cursor: pointer;
-        }
-        :host(.sfvi-in) {
-          transform: translateX(0);
-          opacity: 1;
-        }
-        :host(.sfvi-out) {
-          transform: translateX(calc(100% + 24px));
-          opacity: 0;
-          transition-duration: 0.3s;
-        }
-        #c {
-          background: var(--sfvi-surface, #16181f);
-          border: 1px solid var(--sfvi-border, #252836);
-          border-left: 3px solid var(--ac, #34d399);
-          border-radius: 10px;
-          overflow: hidden;
-          box-shadow: 0 8px 32px rgba(0,0,0,.72), 0 2px 6px rgba(0,0,0,.4);
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-        }
-        .head {
-          display: flex;
-          align-items: center;
-          gap: 7px;
-          padding: 9px 13px 8px;
-          border-bottom: 1px solid var(--sfvi-border2, #1e2230);
-        }
-        .hi { font-size: 14px; line-height: 1; flex-shrink: 0; }
-        .hn {
-          color: var(--sfvi-text3, #555e6b);
-          font-size: 10.5px;
-          font-weight: 600;
-          letter-spacing: .04em;
-          text-transform: uppercase;
-          flex: 1;
-        }
-        .body { padding: 10px 13px 12px; }
-        .st {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          margin-bottom: 5px;
-        }
-        .ring {
-          width: 15px;
-          height: 15px;
-          border-radius: 50%;
-          border: 2px solid var(--ac, #34d399);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          font-size: 9px;
-          color: var(--ac, #34d399);
-          line-height: 1;
-        }
-        .sl {
-          color: var(--ac, #34d399);
-          font-size: 10.5px;
-          font-weight: 700;
-          letter-spacing: .07em;
-          text-transform: uppercase;
-        }
-        .ti {
-          color: var(--sfvi-text, #e6edf3);
-          font-size: 13px;
-          font-weight: 500;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          line-height: 1.35;
-        }
-        .su {
-          color: var(--sfvi-muted, #45505f);
-          font-size: 11px;
-          margin-top: 2px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-        .bw { height: 2px; background: var(--sfvi-surface2, #1a1f2e); }
-        .br {
-          height: 100%;
-          background: var(--ac, #34d399);
-          transform-origin: left;
-          animation: sfvi-bar linear forwards;
-        }
-        @keyframes sfvi-bar {
-          from { transform: scaleX(1); }
-          to   { transform: scaleX(0); }
-        }
-      `;
-
       class SfviToast extends HTMLElement {
         connectedCallback() {
-          if (this.shadowRoot) return;
-          const shadow = this.attachShadow({ mode: 'closed' });
-
-          const sty = document.createElement('style');
-          sty.textContent = CSS;
-
-          const c   = document.createElement('div'); c.id = 'c';
-          const hd  = document.createElement('div'); hd.className  = 'head';
-          const hi  = document.createElement('span'); hi.className = 'hi';
-          const hn  = document.createElement('span'); hn.className = 'hn'; hn.textContent = 'SFV Interceptor';
-          const bd  = document.createElement('div'); bd.className  = 'body';
-          const st  = document.createElement('div'); st.className  = 'st';
-          const rg  = document.createElement('div'); rg.className  = 'ring'; rg.textContent = '✓';
-          const sl  = document.createElement('span'); sl.className = 'sl';
-          const ti  = document.createElement('div'); ti.className  = 'ti';
-          const su  = document.createElement('div'); su.className  = 'su';
-          const bw  = document.createElement('div'); bw.className  = 'bw';
-          const br  = document.createElement('div'); br.className  = 'br';
-
-          hd.append(hi, hn);
-          st.append(rg, sl);
-          bd.append(st, ti, su);
-          bw.appendChild(br);
-          c.append(hd, bd, bw);
-          shadow.append(sty, c);
-
-          const ms    = parseInt(this.getAttribute('d')  || '5000');
-          const color = this.getAttribute('c')  || '#34d399';
-
-          c.style.setProperty('--ac', color);
-          hi.textContent = this.getAttribute('i')  || '🔁';
-          sl.textContent = this.getAttribute('sl') || 'Rule Applied';
-          ti.textContent = this.getAttribute('ti') || '';
-          su.textContent = this.getAttribute('su') || '';
-          br.style.animationDuration = ms + 'ms';
-
-          // Pattern: small delay then add class to trigger CSS transition
-          setTimeout(() => this.classList.add('sfvi-in'), 50);
-
-          const dismiss = () => {
-            this.classList.remove('sfvi-in');
-            this.classList.add('sfvi-out');
-            setTimeout(() => this.remove(), 320);
+          if (states.has(this)) return;
+          const root = this.attachShadow({mode:'closed'});
+          root.adoptedStyleSheets = [sheet];
+          const card = document.createElement('button'); card.id='c'; card.type='button';
+          const color=this.getAttribute('c') || '#22d3ee';
+          const kind={ '#22d3ee':'rest', '#0e7490':'rest', '#34d399':'rest', '#fb7185':'gql', '#60a5fa':'html', '#9cb7ff':'html', '#fbbf24':'js', '#a78bfa':'css' }[color.toLowerCase()];
+          card.style.setProperty('--ac',kind ? `var(--sfvi-t-${kind}-c,${color})` : color);
+          const mark = document.createElement('span'); mark.className='mark';
+          mark.appendChild(svg('M5 12l4 4L19 6'));
+          const copy = document.createElement('span');
+          for (const [className, attribute] of [['status','sl'],['title','ti'],['subtitle','su']]) {
+            const text = document.createElement('span'); text.className=className; text.textContent=this.getAttribute(attribute) || '';
+            copy.appendChild(text);
+          }
+          const label=['sl','ti','su'].map(attribute => this.getAttribute(attribute)).filter(Boolean).join('. ');
+          card.setAttribute('aria-label',`Dismiss notification: ${label}`);
+          const track=document.createElement('span'); track.className='progress'; track.setAttribute('aria-hidden','true');
+          const progress=document.createElement('span'); progress.className='progress-fill'; track.appendChild(progress);
+          card.append(mark,copy,track); root.appendChild(card);
+          const previousFocus = document.activeElement;
+          const requested = Number(this.getAttribute('d'));
+          const duration = Number.isFinite(requested) && requested > 0 ? requested : 5000;
+          let remaining = duration;
+          const motion=matchMedia('(prefers-reduced-motion: reduce)');
+          const progressAnimation=progress.animate([{transform:'scaleX(1)'},{transform:'scaleX(0)'}],{duration,easing:'linear',fill:'forwards'});
+          progressAnimation.pause();
+          const updateProgressMotion=() => progressAnimation.effect.updateTiming({easing:motion.matches ? `steps(${Math.max(1,Math.ceil(duration/1000))}, end)` : 'linear'});
+          updateProgressMotion();
+          motion.addEventListener('change',updateProgressMotion);
+          let timer, exitTimer, started=0, focused=false, closing=false;
+          const pause = () => {
+            if (!timer) return;
+            clearTimeout(timer); timer=undefined; remaining=Math.max(0,remaining-(performance.now()-started));
+            progressAnimation.pause(); progressAnimation.currentTime=duration-remaining;
           };
-
-          const autoTimer = setTimeout(dismiss, ms);
-          this.addEventListener('click', () => { clearTimeout(autoTimer); dismiss(); }, { once: true });
+          const resume = () => {
+            if (focused || closing || timer) return;
+            progressAnimation.currentTime=duration-remaining; progressAnimation.play();
+            started=performance.now(); timer=setTimeout(() => dismiss(),remaining);
+          };
+          const dispose = () => {
+            closing=true;
+            clearTimeout(timer); clearTimeout(exitTimer); progressAnimation.cancel();
+            motion.removeEventListener('change',updateProgressMotion); removeCard(this);
+          };
+          const dismiss = (immediate=false) => {
+            if (closing) return;
+            closing=true; pause();
+            if (root.activeElement) {
+              const next=cards.find(item => item !== this);
+              if (next) states.get(next).action.focus();
+              else if (previousFocus?.isConnected && previousFocus !== this) previousFocus.focus({preventScroll:true});
+            }
+            removeCard(this); this.classList.remove('sfvi-in'); this.classList.add('sfvi-out');
+            if (immediate || matchMedia('(prefers-reduced-motion: reduce)').matches) this.remove();
+            else exitTimer=setTimeout(() => this.remove(),140);
+          };
+          states.set(this,{root,action:card,dispose,dismiss}); cards.push(this);
+          this.addEventListener('focusin',() => { focused=true; pause(); });
+          this.addEventListener('focusout',() => queueMicrotask(() => { focused=Boolean(root.activeElement); resume(); }));
+          this.addEventListener('keydown',event => {
+            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(true); }
+          });
+          card.addEventListener('click',event => { event.stopPropagation(); dismiss(event.detail === 0); });
+          requestAnimationFrame(() => { if (!closing) this.classList.add('sfvi-in'); });
+          resume();
         }
+        disconnectedCallback() { states.get(this)?.dispose(); }
       }
-
-      customElements.define(TAG, SfviToast);
+      customElements.define(TAG,SfviToast);
     }
 
-    // Wrapper for vertical stacking — plain div, inline !important styles
-    const wrap = document.createElement('div');
-    wrap.style.setProperty('position',        'fixed',      'important');
-    wrap.style.setProperty('top',             '60px',       'important');
-    wrap.style.setProperty('right',           '16px',       'important');
-    wrap.style.setProperty('width',           '300px',      'important');
-    wrap.style.setProperty('z-index',         '2147483647', 'important');
-    wrap.style.setProperty('pointer-events',  'none',       'important');
-    wrap.style.setProperty('display',         'flex',       'important');
-    wrap.style.setProperty('flex-direction',  'column',     'important');
-    wrap.style.setProperty('gap',             '10px',       'important');
-    wrap.style.setProperty('border',          'none',       'important');
-    wrap.style.setProperty('background',      'transparent','important');
-    wrap.style.setProperty('padding',         '0',          'important');
-    wrap.style.setProperty('margin',          '0',          'important');
-    if (document.documentElement) {
-      document.documentElement.appendChild(wrap);
-    } else {
-      // Retry when DOM is ready (document_start injection edge case)
-      const tryAppend = () => {
-        if (document.documentElement) document.documentElement.appendChild(wrap);
-        else requestAnimationFrame(tryAppend);
-      };
-      requestAnimationFrame(tryAppend);
-    }
+    const attach = () => {
+      if (document.documentElement) document.documentElement.appendChild(wrap);
+      else requestAnimationFrame(attach);
+    };
+    attach();
 
-    return function showToast(icon, statusLabel, title, sub, color, duration) {
-      const el = document.createElement(TAG);
-      el.setAttribute('i',  icon        || '🔁');
-      el.setAttribute('sl', statusLabel || 'Rule Applied');
-      el.setAttribute('ti', title       || '');
-      el.setAttribute('su', sub         || '');
-      el.setAttribute('c',  color       || '#34d399');
-      el.setAttribute('d',  String(duration || 5000));
-      wrap.appendChild(el);
+    return function showToast(_icon,statusLabel,title,sub,color,duration) {
+      if (cards.length >= 3) {
+        const victim=cards.find(card => !states.get(card).root.activeElement);
+        if (victim) states.get(victim).dismiss(true);
+      }
+      const element=document.createElement(TAG);
+      for (const [key,value] of Object.entries({sl:statusLabel || 'Rule applied',ti:title || '',su:sub || '',c:color || '#22d3ee',d:String(duration || 5000)})) element.setAttribute(key,value);
+      wrap.appendChild(element);
+      clearTimeout(announceTimer);
+      announceTimer=setTimeout(() => { announcement.textContent=`${statusLabel || 'Rule applied'}: ${title || ''}`; },120);
     };
   }
+
+  function _loadToastFont(bytes) {
+    if (_s.fontLoading || !(bytes instanceof ArrayBuffer) || !bytes.byteLength || bytes.byteLength > 131072) return;
+    _s.fontLoading=true;
+    try {
+      const face=new FontFace('SFVI Manrope',bytes,{weight:'200 800',style:'normal'});
+      face.load().then(loaded => document.fonts.add(loaded)).catch(() => {});
+    } catch {}
+  }
+
 
   // Lazy-init wrapper — exposed on _s.toast so background.js _t() helpers find it
   function _sfviToast(icon, statusLabel, title, sub, color, duration) {
     if (!_s._toastFn) {
       try { _s._toastFn = _initToasts(); }
-      catch (e) { _s._toastFn = () => {}; }
+      catch (e) { console.warn('[SFV-I] Notification initialization failed:', e.message); return false; }
     }
     _s._toastFn(icon, statusLabel, title, sub, color, duration);
+    return true;
   }
   _s.toast = _sfviToast;
+
+  const assetNotifications = new Set();
+  _s.notifyAsset = ({ id, theme, statusLabel, name, sub, color }) => {
+    if (!id || assetNotifications.has(id)) return false;
+    if (theme) _applyThemeVars(theme);
+    if (!_sfviToast('', statusLabel, name, sub, color)) return false;
+    assetNotifications.add(id);
+    if (assetNotifications.size > 128) assetNotifications.delete(assetNotifications.values().next().value);
+    return true;
+  };
 
   function _applyThemeVars(vars) {
     if (!vars) return;
@@ -280,8 +255,15 @@
       '--sfvi-text3':    vars['--text3'],
       '--sfvi-muted':    vars['--muted'],
       '--sfvi-accent':   vars['--accent'],
+      '--sfvi-accent-link': vars['--accent-link'],
+      '--sfvi-t-rest-c': vars['--t-rest-c'],
+      '--sfvi-t-gql-c': vars['--t-gql-c'],
+      '--sfvi-t-html-c': vars['--t-html-c'],
+      '--sfvi-t-js-c': vars['--t-js-c'],
+      '--sfvi-t-css-c': vars['--t-css-c'],
     };
-    Object.entries(map).forEach(([k, v]) => { if (v) root.style.setProperty(k, v); });
+    _s.toastTheme = Object.fromEntries(Object.entries(map).filter(([,value]) => value));
+    if (_s.toastWrap) Object.entries(_s.toastTheme).forEach(([key,value]) => _s.toastWrap.style.setProperty(key,value));
   }
 
   function _shortUrl(abs) {
@@ -294,11 +276,16 @@
   }
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const STATE = { apis: [] };
+  const STATE = { apis: [], generation: 0 };
   const _regexCache = new Map();
 
-  function updateApis(apis) {
-    STATE.apis = apis;
+  function updateApis(apis, activity = null) {
+    const generation = activity?.configGeneration || apis[0]?.configGeneration || 0;
+    // Never install or overwrite published descriptors without their own cycle.
+    if (generation && !activity) return;
+    if (generation < STATE.generation) return;
+    STATE.generation = generation;
+    STATE.apis = apis.map(rule => ({ ...rule, activity: activity ? { ...activity } : null }));
     _regexCache.clear();
     for (const rule of apis) {
       if (rule.regex) {
@@ -307,6 +294,12 @@
     }
   }
   _s.updateApis = updateApis;
+  window.addEventListener('pageshow', event => {
+    if (event.persisted) {
+      STATE.apis = [];
+      _regexCache.clear();
+    }
+  });
 
   function _waitForSandbox() {
     return new Promise((resolve) => {
@@ -323,7 +316,9 @@
     if (ev.source !== window) return;
     if (!ev.data) return;
     if (ev.data.type === '__sfvi_hook_data__') {
-      if (ev.data.apis) updateApis(ev.data.apis);
+      if (ev.data.apis) updateApis(ev.data.apis, ev.data.activity);
+    } else if (ev.data.type === '__sfvi_font__') {
+      _loadToastFont(ev.data.bytes);
     } else if (ev.data.type === '__sfvi_theme__') {
       _applyThemeVars(ev.data.vars);
     }
@@ -342,8 +337,16 @@
     try { return new RegExp(rule.regex, 'i').test(url); } catch { return false; }
   }
 
-  function notifyApplied(ruleId, url) {
-    window.dispatchEvent(new CustomEvent('__sfvi_applied__', { detail: { ruleId, url } }));
+  function notifyApplied(rule, url) {
+    if (!rule.activity) return;
+    window.dispatchEvent(new CustomEvent('__sfvi_applied__', { detail: {
+      ruleId: rule.ruleId, pairId: rule.pairId, activity: rule.activity, url,
+    } }));
+  }
+
+  function completeApplied(rule, url, title, status) {
+    try { notifyApplied(rule, url); } catch {}
+    try { _sfviToast('', 'Rule Applied', rule.name || title, title + ' \u00b7 ' + status, rule.color || '#22d3ee'); } catch {}
   }
 
   function buildResponse(rule, body, requestUrl) {
@@ -482,135 +485,115 @@
   // FETCH OVERRIDE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const _fetchOverride = async function fetch(input, init) {
-    let url, method, reqBody, requestHeaders = {};
-    if (input && typeof input === 'object') {
-      url    = input.url || input.href || '';
-      method = (init?.method || input.method || 'GET').toUpperCase();
-      reqBody = init?.body ?? null;
-      if (!reqBody && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-        try { reqBody = await input.clone().text(); } catch {}
-      }
-      try {
-        if (input.headers) input.headers.forEach((v, k) => requestHeaders[k] = v);
-      } catch {}
-    } else {
-      url     = typeof input === 'string' ? input : (input?.url ?? input?.href ?? '');
-      method  = (init?.method || 'GET').toUpperCase();
-      reqBody = init?.body ?? null;
-      if (init?.headers) {
-        if (init.headers instanceof Headers) init.headers.forEach((v, k) => requestHeaders[k] = v);
-        else if (typeof init.headers === 'object') Object.assign(requestHeaders, init.headers);
-      }
+  function parseJson(value) {
+    try { return JSON.parse(value); } catch { return null; }
+  }
+
+  function customRequestHeaders(rule) {
+    if (!rule.requestCustomHeaders) return {};
+    const headers = typeof rule.requestCustomHeaders === 'string' ? parseJson(rule.requestCustomHeaders) : rule.requestCustomHeaders;
+    return headers && typeof headers === 'object' ? headers : {};
+  }
+
+  function requestBodyArgs(request) {
+    return { method: request.method, url: request.url, requestHeaders: request.headers,
+      requestData: request.body, requestJSON: parseJson(request.body) };
+  }
+
+  function bodyText(value) { return typeof value === 'string' ? value : JSON.stringify(value); }
+
+  function findApiRule(request) {
+    return STATE.apis.find(rule => matchesRule(request.url, rule) &&
+      (!rule.method || rule.method === request.method) && matchesGqlOperation(rule, request.body));
+  }
+
+  function fetchRequestMetadata(input, init) {
+    const objectInput = input && typeof input === 'object';
+    const url = objectInput ? input.url || input.href || '' : String(input || '');
+    return { objectInput, url: toAbs(url), method: (init?.method || input?.method || 'GET').toUpperCase() };
+  }
+
+  async function readFetchRequest(input, init) {
+    const { objectInput, url, method } = fetchRequestMetadata(input, init);
+    let body = init?.body ?? null;
+    if (!body && objectInput && ['POST','PUT','PATCH'].includes(method)) {
+      try { body = await input.clone().text(); } catch {}
     }
-    let abs = toAbs(url);
+    const headers = {};
+    try { new Headers(init?.headers || input?.headers).forEach((value, key) => { headers[key] = value; }); } catch {}
+    return { url, method, body, headers };
+  }
 
-    const rule = STATE.apis.find(r =>
-      matchesRule(abs, r) &&
-      (!r.method || r.method === method) &&
-      matchesGqlOperation(r, reqBody)
-    );
-    if (!rule) return _nativeFetch(input, init);
-
-    // ── Mutate outgoing request ───────────────────────────────────────────
-    let outgoingBody = reqBody;
-    if (rule.requestBodyType === 'static' && rule.requestBody) {
-      outgoingBody = rule.requestBody;
-    } else if (rule.requestBodyType === 'dynamic' && rule.requestBody) {
-      let parsedReqData = null;
-      try { if (typeof reqBody === 'string') parsedReqData = JSON.parse(reqBody); } catch {}
-      try {
-        const modified = await runModifyRequestSafe(rule, {
-          method, url: abs,
-          requestHeaders,
-          requestData: reqBody,
-          requestJSON: parsedReqData,
-        });
-        if (modified != null) {
-          outgoingBody = typeof modified === 'string' ? modified : JSON.stringify(modified);
-        }
-      } catch (err) {
-        console.error('[SFV-I] requestBody (dynamic) error:', err.message);
-      }
-    }
-    let finalInput = input;
-    let finalInit  = { ...(init || {}) };
-
-    // body
-    if (outgoingBody !== reqBody) {
-      finalInit.body = outgoingBody;
-    }
-
-    // headers
-    if (rule.requestCustomHeaders) {
-      try {
-        const customReqH = typeof rule.requestCustomHeaders === 'string'
-          ? JSON.parse(rule.requestCustomHeaders)
-          : rule.requestCustomHeaders;
-
-        const merged = new Headers(finalInit.headers || requestHeaders || {});
-
-        for (const [k, v] of Object.entries(customReqH)) {
-          merged.set(k, String(v));
-        }
-
-        finalInit.headers = merged;
-      } catch {}
-    }
-
-    // redirect
-    if (rule.redirectUrl) {
-      abs = toAbs(rule.redirectUrl);
-      finalInput = abs;
-    }
-
-    // normalize request object
-    if (typeof finalInput !== 'string') {
-      finalInput = new Request(finalInput, finalInit);
-    } else {
-      finalInit = Object.keys(finalInit).length ? finalInit : undefined;
-    }
-    // ─────────────────────────────────────────────────────────────────────
-
-    notifyApplied(rule.id, abs);
-    const statusCode = rule.statusCode || '200';
-    const title      = method + ' · ' + _shortUrl(abs);
-
-    if (rule.responseType !== 'dynamic') {
-      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-      if (!rule.responseBody) {
-        return _nativeFetch(finalInput, finalInit);
-      }
-      return buildResponse(rule, rule.responseBody, abs);
-    }
-
-    if (!rule.responseBody) {
-      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399');
-      return _nativeFetch(finalInput, finalInit);
-    }
-
+  async function modifyFetchBody(rule, request) {
+    if (!rule.requestBody) return request.body;
+    if (rule.requestBodyType === 'static') return rule.requestBody;
     try {
-      const origResp = await _nativeFetch(input, init);
-      const origText = await origResp.text();
-      let   origJSON = null;
-      try { origJSON = JSON.parse(origText); } catch {}
-      const body = await runModifyResponseSafe(rule, {
-        method, url: abs,
-        response:       origText,
-        responseJSON:   origJSON,
-        responseType:   origResp.headers.get('content-type') || '',
-        requestHeaders,
-        requestData:    reqBody,
-      });
-      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
-      return buildResponse(rule, body, abs);
-    } catch (err) {
-      _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-      if (!rule.responseBody) {
-        return _nativeFetch(finalInput, finalInit);
-      }
-      return buildResponse(rule, rule.responseBody, abs);
+      const modified = await runModifyRequestSafe(rule, requestBodyArgs(request));
+      return modified == null ? request.body : bodyText(modified);
+    } catch (error) {
+      console.error('[SFV-I] Request modification failed:', error.message);
+      return request.body;
     }
+  }
+
+  async function prepareFetchRequest(input, init, rule, request) {
+    const outgoingBody = await modifyFetchBody(rule, request);
+    const options = { ...init };
+    if (outgoingBody !== request.body) options.body = outgoingBody;
+    const custom = customRequestHeaders(rule);
+    const headersChanged = Object.keys(custom).length > 0;
+    if (headersChanged) {
+      const headers = new Headers(options.headers || request.headers);
+      for (const [key, value] of Object.entries(custom)) headers.set(key, String(value));
+      options.headers = headers;
+    }
+    const url = rule.redirectUrl ? toAbs(rule.redirectUrl) : request.url;
+    let finalInput = rule.redirectUrl ? url : input;
+    if (typeof finalInput !== 'string') finalInput = new Request(finalInput, options);
+    const requestChanged = outgoingBody !== request.body || headersChanged || Boolean(rule.redirectUrl);
+    return { input: finalInput, init: options, url, outgoingBody, requestChanged };
+  }
+
+  async function transformFetchResponse(rule, request, prepared) {
+    const original = await _nativeFetch(prepared.input, prepared.init);
+    const text = await original.text();
+    const body = await runModifyResponseSafe(rule, {
+      method: request.method, url: prepared.url, response: text, responseJSON: parseJson(text),
+      responseType: original.headers.get('content-type') || '',
+      requestHeaders: request.headers, requestData: prepared.outgoingBody,
+    });
+    return buildResponse(rule, body, prepared.url);
+  }
+
+  async function applyFetchResponse(rule, request, prepared) {
+    const title = request.method + ' \u00b7 ' + _shortUrl(prepared.url);
+    if (!rule.responseBody) {
+      const response = await _nativeFetch(prepared.input, prepared.init);
+      if (prepared.requestChanged) completeApplied(rule, prepared.url, title, 'request modified');
+      return response;
+    }
+    if (rule.responseType !== 'dynamic') {
+      const response = buildResponse(rule, rule.responseBody, prepared.url);
+      completeApplied(rule, prepared.url, title, 'response mocked');
+      return response;
+    }
+    try {
+      const response = await transformFetchResponse(rule, request, prepared);
+      completeApplied(rule, prepared.url, title, 'response modified');
+      return response;
+    } catch (error) {
+      // Preserve the existing fallback, without presenting a failed transform as success.
+      console.error('[SFV-I] Response modification failed:', error.message);
+      return buildResponse(rule, rule.responseBody, prepared.url);
+    }
+  }
+
+  const _fetchOverride = async function fetch(input, init) {
+    const request = await readFetchRequest(input, init);
+    const rule = findApiRule(request);
+    if (!rule) return _nativeFetch(input, init);
+    const prepared = await prepareFetchRequest(input, init, rule, request);
+    return applyFetchResponse(rule, request, prepared);
   };
   _nativables.add(_fetchOverride);
   window.fetch = _fetchOverride;
@@ -643,227 +626,168 @@
   _nativables.add(_xhrSetH);
   try { XMLHttpRequest.prototype.setRequestHeader = _xhrSetH; } catch {}
 
-  const _xhrSend = function send(body) {
-    const url = this[_URL] || '';
-    const rule = STATE.apis.find(r =>
-      matchesRule(url, r) &&
-      (!r.method || r.method === this[_METHOD]) &&
-      matchesGqlOperation(r, body)
-    );
-    if (!rule) return _protoSend.call(this, body);
-
-    // ── Mutate outgoing request ───────────────────────────────────────────
-    let outgoingBody = body;
-    if (rule.requestBodyType === 'static' && rule.requestBody) {
-      outgoingBody = rule.requestBody;
-    } else if (rule.requestBodyType === 'dynamic' && rule.requestBody) {
-      let parsedReqData = null;
-      try { if (typeof body === 'string') parsedReqData = JSON.parse(body); } catch {}
-      try {
-        const modified = runModifyRequest(rule, {
-          method: this[_METHOD],
-          url,
-          requestHeaders: this[_HDRS] || {},
-          requestData: body,
-          requestJSON: parsedReqData,
-        });
-        if (modified != null) {
-          outgoingBody = typeof modified === 'string' ? modified : JSON.stringify(modified);
-        }
-      } catch (err) {
-        console.error('[SFV-I] requestBody (dynamic) error:', err.message);
-      }
+  function modifyXhrBody(rule, request) {
+    if (!rule.requestBody) return request.body;
+    if (rule.requestBodyType === 'static') return rule.requestBody;
+    try {
+      const modified = runModifyRequest(rule, requestBodyArgs(request));
+      return modified == null ? request.body : bodyText(modified);
+    } catch (error) {
+      console.error('[SFV-I] Request modification failed:', error.message);
+      return request.body;
     }
-    let reqHeaders = { ...(this[_HDRS] || {}) };
-    if (rule.requestCustomHeaders) {
+  }
+
+  function prepareXhrRequest(rule, request) {
+    const outgoingBody = modifyXhrBody(rule, request);
+    const custom = customRequestHeaders(rule);
+    return { outgoingBody, headers: { ...request.headers, ...custom },
+      url: rule.redirectUrl ? toAbs(rule.redirectUrl) : request.url,
+      requestChanged: outgoingBody !== request.body || Object.keys(custom).length > 0 || Boolean(rule.redirectUrl) };
+  }
+
+  function defineXhrProperty(xhr, key, value) {
+    try { Object.defineProperty(xhr, key, { get: () => value, configurable: true, enumerable: true }); }
+    catch { try { xhr[key] = value; } catch {} }
+  }
+
+  function defineXhrMethod(xhr, key, value) {
+    try { Object.defineProperty(xhr, key, { value, configurable: true, enumerable: true, writable: true }); }
+    catch { try { xhr[key] = value; } catch {} }
+  }
+
+  function installXhrHeaders(xhr, realHeaders) {
+    const text = typeof realHeaders === 'string' ? realHeaders : '';
+    const headers = new Map();
+    for (const line of text.split(/\r?\n/)) {
+      const index = line.indexOf(':');
+      if (index > 0) headers.set(line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim());
+    }
+    defineXhrMethod(xhr, 'getResponseHeader', name => headers.get(String(name).toLowerCase()) || null);
+    defineXhrMethod(xhr, 'getAllResponseHeaders', () => text);
+  }
+
+  function fireXhrEvents(xhr) {
+    xhr.dispatchEvent(new Event('readystatechange'));
+    if (typeof xhr.onreadystatechange === 'function') xhr.onreadystatechange();
+    xhr.dispatchEvent(new ProgressEvent('load'));
+    xhr.dispatchEvent(new ProgressEvent('loadend'));
+    if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
+    if (typeof xhr.onloadend === 'function') xhr.onloadend(new ProgressEvent('loadend'));
+  }
+
+  function xhrResponseProps(rule, prepared, body, realStatus, realStatusText) {
+    const status = realStatus || parseInt(rule.statusCode) || 200;
+    return { readyState: 4, status, statusText: realStatusText || (status === 200 ? 'OK' : String(status)),
+      responseText: body, response: body, responseURL: prepared.url };
+  }
+
+  function createXhrDispatcher(xhr, rule, request, prepared) {
+    const title = request.method + ' \u00b7 ' + _shortUrl(prepared.url);
+    const delay = rule.delay > 0 ? rule.delay : 0;
+    return function dispatchMock(body, realStatus, realStatusText, realHeaders, applied = true) {
+      const props = xhrResponseProps(rule, prepared, body, realStatus, realStatusText);
+      for (const [key, value] of Object.entries(props)) defineXhrProperty(xhr, key, value);
+      installXhrHeaders(xhr, realHeaders);
+      const fire = () => {
+        if (applied && (rule.responseBody || prepared.requestChanged)) {
+          completeApplied(rule, prepared.url, title, rule.responseBody ? 'response applied' : 'request modified');
+        }
+        fireXhrEvents(xhr);
+      };
+      if (request.isSync) fire();
+      else setTimeout(fire, delay);
+    };
+  }
+
+  function nativeXhr(xhr, request, prepared, forwardOptions = false) {
+    const real = new _NativeXHR();
+    _protoOpen.call(real, request.method, prepared.url, !request.isSync);
+    Object.entries(prepared.headers).forEach(([key, value]) => _protoSetH.call(real, key, value));
+    if (forwardOptions) {
       try {
-        const customReqH = typeof rule.requestCustomHeaders === 'string'
-          ? JSON.parse(rule.requestCustomHeaders)
-          : rule.requestCustomHeaders;
-        Object.assign(reqHeaders, customReqH);
+        for (const key of ['responseType', 'withCredentials', 'timeout']) {
+          if (xhr[key] != null) real[key] = xhr[key];
+        }
       } catch {}
     }
-    // ─────────────────────────────────────────────────────────────────────
+    return real;
+  }
 
-    notifyApplied(rule.id, this[_URL]);
+  function deliverOriginal(real, deliver) {
+    deliver(real.responseText, real.status, real.statusText, real.getAllResponseHeaders());
+  }
 
-    const xhr        = this;
-    const reqMethod  = this[_METHOD];
-    const reqUrl     = rule.redirectUrl ? toAbs(rule.redirectUrl) : this[_URL];
-    const delay      = rule.delay > 0 ? rule.delay : 0;
-    const statusCode = rule.statusCode || '200';
-    const title      = reqMethod + ' · ' + _shortUrl(reqUrl);
-    const isSync     = this[_ASYNC] === false;
-
-    function dispatchMock(mockBody, realStatus, realStatusText, realHeaders) {
-      const st = realStatus || parseInt(rule.statusCode) || 200;
-      const props = {
-        readyState:   4,
-        status:       st,
-        statusText:   realStatusText || (st === 200 ? 'OK' : String(st)),
-        responseText: mockBody,
-        response:     mockBody,
-        responseURL:  reqUrl,
-      };
-      for (const [k, v] of Object.entries(props)) {
-        try {
-          Object.defineProperty(xhr, k, { get: () => v, configurable: true, enumerable: true });
-        } catch {
-          try { xhr[k] = v; } catch {}
-        }
-      }
-      // Preserve real response headers so jQuery can detect JSON via Content-Type
-      const _headerMap = new Map();
-      if (typeof realHeaders === 'string') {
-        realHeaders.split(/\r?\n/).forEach(line => {
-          const idx = line.indexOf(':');
-          if (idx > 0) _headerMap.set(line.slice(0, idx).trim().toLowerCase(), line.slice(idx + 1).trim());
-        });
-      }
-      try {
-        Object.defineProperty(xhr, 'getResponseHeader', {
-          value: function getResponseHeader(name) {
-            return _headerMap.get(String(name).toLowerCase()) || null;
-          },
-          configurable: true, enumerable: true, writable: true,
-        });
-      } catch {
-        try { xhr.getResponseHeader = function(name) { return _headerMap.get(String(name).toLowerCase()) || null; }; } catch {}
-      }
-      try {
-        Object.defineProperty(xhr, 'getAllResponseHeaders', {
-          value: function getAllResponseHeaders() { return typeof realHeaders === 'string' ? realHeaders : ''; },
-          configurable: true, enumerable: true, writable: true,
-        });
-      } catch {
-        try { xhr.getAllResponseHeaders = function() { return typeof realHeaders === 'string' ? realHeaders : ''; }; } catch {}
-      }
-      const fire = () => {
-        xhr.dispatchEvent(new Event('readystatechange'));
-        if (typeof xhr.onreadystatechange === 'function') xhr.onreadystatechange();
-        xhr.dispatchEvent(new ProgressEvent('load'));
-        xhr.dispatchEvent(new ProgressEvent('loadend'));
-        if (typeof xhr.onload    === 'function') xhr.onload(new ProgressEvent('load'));
-        if (typeof xhr.onloadend === 'function') xhr.onloadend(new ProgressEvent('loadend'));
-      };
-      if (isSync) fire();
-      else setTimeout(fire, delay);
-    }
-
-    if (rule.responseType !== 'dynamic') {
-      if (!rule.responseBody) {
-        if (isSync) {
-          const realXhr = new _NativeXHR();
-          _protoOpen.call(realXhr, reqMethod, reqUrl, false);
-          Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-          _protoSend.call(realXhr, outgoingBody);
-          dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
-          _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399');
-        } else {
-          const realXhr = new _NativeXHR();
-          _protoOpen.call(realXhr, reqMethod, reqUrl, true);
-          Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-          realXhr.onload  = () => { dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders()); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399'); };
-          realXhr.onerror = () => { dispatchMock(''); };
-          _protoSend.call(realXhr, outgoingBody);
-        }
-        return;
-      }
-      if (isSync) {
-        dispatchMock(rule.responseBody);
-        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-        return;
-      }
-      const realXhr = new _NativeXHR();
-      _protoOpen.call(realXhr, reqMethod, reqUrl, true);
-      Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-      realXhr.onload  = () => { dispatchMock(rule.responseBody); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399'); };
-      realXhr.onerror = () => { dispatchMock(rule.responseBody); };
-      _protoSend.call(realXhr, outgoingBody);
+  function sendRequestOnlyXhr(xhr, rule, request, prepared, deliver) {
+    const real = nativeXhr(xhr, request, prepared, rule.responseType === 'dynamic' && !request.isSync);
+    if (request.isSync) {
+      _protoSend.call(real, prepared.outgoingBody);
+      deliverOriginal(real, deliver);
       return;
     }
+    real.onload = () => deliverOriginal(real, deliver);
+    real.onerror = () => deliver('', undefined, undefined, undefined, false);
+    _protoSend.call(real, prepared.outgoingBody);
+  }
 
-    if (!rule.responseBody) {
-      if (isSync) {
-        const realXhr = new _NativeXHR();
-        _protoOpen.call(realXhr, reqMethod, reqUrl, false);
-        Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-        _protoSend.call(realXhr, outgoingBody);
-        dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
-        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399');
-      } else {
-        const realXhr = new _NativeXHR();
-        _protoOpen.call(realXhr, reqMethod, reqUrl, true);
-        Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
-        try {
-          ['responseType', 'withCredentials', 'timeout'].forEach(p => {
-            if (xhr[p] != null) realXhr[p] = xhr[p];
-          });
-        } catch {}
-        realXhr.onload  = () => { dispatchMock(realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders()); _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · req modified · ' + statusCode, '#34d399'); };
-        realXhr.onerror = () => { dispatchMock(''); };
-        _protoSend.call(realXhr, outgoingBody);
-      }
-      return;
-    }
+  function sendStaticXhr(xhr, rule, request, prepared, deliver) {
+    if (!rule.responseBody) return sendRequestOnlyXhr(xhr, rule, request, prepared, deliver);
+    if (request.isSync) return deliver(rule.responseBody);
+    const real = nativeXhr(xhr, request, prepared);
+    real.onload = () => deliver(rule.responseBody);
+    real.onerror = () => deliver(rule.responseBody);
+    _protoSend.call(real, prepared.outgoingBody);
+  }
 
-    const realXhr = new _NativeXHR();
-    _protoOpen.call(realXhr, reqMethod, reqUrl, !isSync);
-    Object.entries(reqHeaders).forEach(([k, v]) => _protoSetH.call(realXhr, k, v));
+  function xhrResponseArgs(real, request, prepared) {
+    const text = real.responseText;
+    return { method: request.method, url: prepared.url, response: text, responseJSON: parseJson(text),
+      responseType: real.getResponseHeader('content-type') || '', requestHeaders: prepared.headers, requestData: request.body };
+  }
+
+  function deliverTransformedXhr(real, result, deliver, applied = true) {
+    deliver(result, real.status, real.statusText, real.getAllResponseHeaders(), applied);
+  }
+
+  function transformSyncXhr(real, rule, request, prepared, deliver) {
     try {
-      ['responseType', 'withCredentials', 'timeout'].forEach(p => {
-        if (xhr[p] != null) realXhr[p] = xhr[p];
-      });
-    } catch {}
+      const result = runModifyResponse(rule, xhrResponseArgs(real, request, prepared));
+      deliverTransformedXhr(real, result, deliver);
+    } catch {
+      deliverTransformedXhr(real, rule.responseBody || real.responseText, deliver, false);
+    }
+  }
 
-    if (isSync) {
-      _protoSend.call(realXhr, outgoingBody);
-      let result = rule.responseBody;
-      try {
-        const origText = realXhr.responseText;
-        let origJSON = null;
-        try { origJSON = JSON.parse(origText); } catch {}
-        result = runModifyResponse(rule, {
-          method:         reqMethod,
-          url:            reqUrl,
-          response:       origText,
-          responseJSON:   origJSON,
-          responseType:   realXhr.getResponseHeader('content-type') || '',
-          requestHeaders: reqHeaders,
-          requestData:    body,
-        });
-        dispatchMock(result, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
-        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
-      } catch (err) {
-        dispatchMock(rule.responseBody || realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
-        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-      }
+  async function transformAsyncXhr(real, rule, request, prepared, deliver) {
+    try {
+      const result = await runModifyResponseSafe(rule, xhrResponseArgs(real, request, prepared));
+      deliverTransformedXhr(real, result, deliver);
+    } catch {
+      deliverTransformedXhr(real, rule.responseBody || real.responseText, deliver, false);
+    }
+  }
+
+  function sendDynamicXhr(xhr, rule, request, prepared, deliver) {
+    if (!rule.responseBody) return sendRequestOnlyXhr(xhr, rule, request, prepared, deliver);
+    const real = nativeXhr(xhr, request, prepared, true);
+    if (request.isSync) {
+      _protoSend.call(real, prepared.outgoingBody);
+      transformSyncXhr(real, rule, request, prepared, deliver);
       return;
     }
+    real.onload = () => transformAsyncXhr(real, rule, request, prepared, deliver);
+    real.onerror = () => deliver(rule.responseBody || '', undefined, undefined, undefined, false);
+    _protoSend.call(real, prepared.outgoingBody);
+  }
 
-    realXhr.onload = async () => {
-      try {
-        const origText = realXhr.responseText;
-        let   origJSON = null;
-        try { origJSON = JSON.parse(origText); } catch {}
-        const result = await runModifyResponseSafe(rule, {
-          method:         reqMethod,
-          url:            reqUrl,
-          response:       origText,
-          responseJSON:   origJSON,
-          responseType:   realXhr.getResponseHeader('content-type') || '',
-          requestHeaders: reqHeaders,
-          requestData:    body,
-        });
-        dispatchMock(result, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
-        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · modified · ' + statusCode, '#34d399');
-      } catch (err) {
-        dispatchMock(rule.responseBody || realXhr.responseText, realXhr.status, realXhr.statusText, realXhr.getAllResponseHeaders());
-        _sfviToast('🔁', 'Rule Applied', rule.name || title, title + ' · mocked · ' + statusCode, '#34d399');
-      }
-    };
-    realXhr.onerror = () => dispatchMock(rule.responseBody || '');
-    _protoSend.call(realXhr, outgoingBody);
+  const _xhrSend = function send(body) {
+    const request = { url: this[_URL] || '', method: this[_METHOD], headers: this[_HDRS] || {}, body, isSync: this[_ASYNC] === false };
+    const rule = findApiRule(request);
+    if (!rule) return _protoSend.call(this, body);
+    const prepared = prepareXhrRequest(rule, request);
+    const deliver = createXhrDispatcher(this, rule, request, prepared);
+    if (rule.responseType !== 'dynamic') return sendStaticXhr(this, rule, request, prepared, deliver);
+    return sendDynamicXhr(this, rule, request, prepared, deliver);
   };
   _nativables.add(_xhrSend);
   try { XMLHttpRequest.prototype.send = _xhrSend; } catch {}
