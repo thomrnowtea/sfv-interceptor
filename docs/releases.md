@@ -15,9 +15,9 @@ npx playwright install chromium
 npm run test:release
 ```
 
-The current version produces `dist/sfv-interceptor-v1.3.0.zip` and `dist/sfv-interceptor-v1.3.0.zip.sha256`. The version comes from `manifest.json` and must match `package.json`. `dist/` is ignored by Git. Packaging does not compile, minify, or rewrite the extension's code or manifest.
+The current version produces `dist/sfv-interceptor-v1.3.1.zip` and `dist/sfv-interceptor-v1.3.1.zip.sha256`. The version comes from `manifest.json` and must match `package.json`. `dist/` is ignored by Git. Packaging does not compile, minify, or rewrite the extension's code or manifest.
 
-`npm run package -- --tag v1.3.0` additionally checks the expected release tag. Versions use Chrome-compatible numeric `X.Y.Z` values; tags use `vX.Y.Z`. For a future release, update the manifest and run `npm version <version> --no-git-tag-version` to update the package and lockfile before packaging.
+`npm run package -- --tag v1.3.1` additionally checks the expected release tag. Versions use Chrome-compatible numeric `X.Y.Z` values; tags use `vX.Y.Z`. For a future release, update the manifest and run `npm version <version> --no-git-tag-version` to update the package and lockfile before packaging. Update [the release notes](release-body.md) with a short changelog and the new download/compare links.
 
 ## Archive contents
 
@@ -45,11 +45,11 @@ The extracted-archive smoke check verifies checksum, exact allowlisted contents 
 Commit and push the reviewed source changes, new runtime assets, packaging files and [.github/workflows/release.yml](../.github/workflows/release.yml). Tag that commit only after its versions agree and checks pass:
 
 ```sh
-git tag -a v1.3.0 -m "SFV Interceptor 1.3.0"
-git push origin v1.3.0
+git tag -a v1.3.1 -m "SFV Interceptor 1.3.1"
+git push origin v1.3.1
 ```
 
-The tag push runs Node tests, syntax checks, packaging and the extracted-ZIP browser check. On success, the workflow attaches the versioned ZIP and checksum to a GitHub Release. [Tag filters](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#using-filters-to-target-specific-branches-or-tags-for-push-events) select releases; [GitHub CLI](https://cli.github.com/manual/gh_release_create) supplies generated change notes plus [installation/update copy](release-body.md). Actions are pinned to full commit SHAs. The built-in GitHub token needs `contents: write`; no personal token is required.
+The tag push runs Node tests, syntax checks, packaging and the extracted-ZIP browser check. On success, the workflow attaches the versioned ZIP and checksum to a GitHub Release. [Tag filters](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#using-filters-to-target-specific-branches-or-tags-for-push-events) select releases; [GitHub CLI](https://cli.github.com/manual/gh_release_create) publishes the curated [changelog and update instructions](release-body.md). Actions are pinned to full commit SHAs. The built-in GitHub token needs `contents: write`; no personal token is required.
 
 **Actions → Release → Run workflow** builds and uploads a downloadable preview artifact without publishing a release. Only a pushed version tag publishes. GitHub's automatic source archives remain separate from the named extension ZIP. Existing releases are not overwritten by this workflow; publish fixes under a new version/tag.
 

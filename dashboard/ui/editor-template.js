@@ -89,6 +89,7 @@ function requestOverrides(rule) {
     <div id="req-dynamic-body-field" ${type === 'dynamic' ? '' : 'style="display:none"'}>
       <div class="code-hint">Use <code>args.requestJSON</code>, <code>args.requestData</code>, <code>args.url</code>, <code>args.method</code>, and <code>args.requestHeaders</code>. Return a string or object to replace the outgoing body.</div>
       ${codeEditor('f-req-modifier', bodyFor(request, 'dynamic'), 'JavaScript', 'req-modifier')}
+      <div id="sfvi-request-risk-bar" class="risk-bar" hidden></div>
     </div>
     ${headersField('f-req-headers', 'Request headers', request.customHeaders)}
   </div></details>`;
@@ -116,11 +117,11 @@ function response(rule) {
       ${inputField('f-delay', 'Delay in milliseconds', body.delay, 'number', 'placeholder="0" min="0"')}
     </div>
     ${tabs('resp', type, 'Response body')}
-    <div id="static-body-field" ${type === 'static' ? '' : 'style="display:none"'}>${codeEditor('f-body-static', bodyFor(body, 'static'), 'JSON / TEXT', 'static')}</div>
+    <div id="static-body-field" ${type === 'static' ? '' : 'style="display:none"'}>${codeEditor('f-body-static', bodyFor(body, 'static'), 'JSON / TEXT', 'static')}<div id="sfvi-static-risk-bar" class="risk-bar" hidden></div></div>
     <div id="dynamic-body-field" ${type === 'dynamic' ? '' : 'style="display:none"'}>
       <div class="code-hint" id="code-hint-dyn">Transform <code>args.responseJSON</code> or <code>args.response</code>, using the request URL and method.</div>
       ${codeEditor('f-body-dynamic', bodyFor(body, 'dynamic'), 'JavaScript', 'dynamic')}
-      <div id="sfvi-risk-bar" style="display:none"></div>
+      <div id="sfvi-risk-bar" class="risk-bar" hidden></div>
     </div>
     ${headersField('f-headers', 'Response headers', body.customHeaders)}`);
 }
@@ -136,7 +137,7 @@ function remoteBanner(rule) {
 function statusbar(rule) {
   return `<div class="statusbar"><span>ID: <span style="font-family:var(--mono)">${esc(rule.sourceRuleId || rule.id || 'unsaved')}</span></span>
     <span class="sep">·</span><span class="status-ok">${isRemoteRule(rule) ? 'Remote snapshot' : 'Stored on this device'}</span>
-    <span style="margin-left:auto">by <a href="https://github.com/thomrnowtea" target="_blank" rel="noopener noreferrer" class="author-link">thomrnowtea</a></span></div>`;
+    <span style="margin-left:auto">by <a href="https://github.com/thomrnowtea/sfv-interceptor" target="_blank" rel="noopener noreferrer" class="author-link">thomrnowtea</a></span></div>`;
 }
 
 export function buildRuleEditor(rule, buildPairRow) {

@@ -242,18 +242,64 @@ dialog::backdrop { background: rgba(0,0,0,.3); backdrop-filter: blur(3px); }
 .palette-dot.active { outline: 2px solid var(--text); outline-offset: 1px; }
 .palette-dot { padding: 0; min-height: 24px; }
 .security-warning { width: min(480px, calc(100vw - 32px)); padding: 22px; }
+.security-warning[open] { display: flex; flex-direction: column; overflow: hidden; }
+.security-warning > :not(.security-findings) { flex-shrink: 0; }
 .security-warning h2 { font-size: 18px; }
 .security-warning > p { margin-top: 12px; color: var(--text2); }
-.security-findings { padding-left: 20px; margin: 18px 0; }
+.security-findings { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-left: 20px; padding-right: 8px; margin: 18px 0 0; }
 .security-findings li { margin-bottom: 12px; }
 .security-findings p { color: var(--text2); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
 .security-accept { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0; font-weight: 400; }
 .security-accept input { flex-shrink: 0; margin: 4px 0; }
-#sfvi-allrisks-popup { width: min(540px, calc(100vw - 32px)); }
+#sfvi-allrisks-popup { --risk-inset: 20px; width: min(540px, calc(100vw - 32px)); }
 #sfvi-allrisks-popup[open] { display: flex; flex-direction: column; overflow: hidden; }
 #sfvi-allrisks-popup code { white-space: normal; overflow-wrap: anywhere; }
-#sfvi-allrisks-popup .risk-reference-scroll { overflow-y: auto; min-height: 0; }
+#sfvi-allrisks-popup .risk-reference-scroll { overflow-y: auto; min-height: 0; padding: 0 var(--risk-inset) var(--risk-inset); scrollbar-gutter: stable; overscroll-behavior: contain; }
+.security-fields { display: block; margin-top: 3px; color: var(--text2); font-size: 12px; }
+.risk-level-critical { --risk-color: var(--danger); }
+.risk-level-high { --risk-color: var(--orange); }
+.risk-level-medium { --risk-color: var(--accent-link); }
+.risk-level-none { --risk-color: var(--text3); }
+.risk-panel, .risk-flag, .risk-reference-group { --risk-ink: color-mix(in srgb, var(--risk-color) 82%, var(--text)); }
+.risk-bar { margin-top: 10px; min-width: 0; }
+.risk-panel { position: relative; padding: 12px; border: 1px solid color-mix(in srgb, var(--risk-color) 35%, var(--border)); border-radius: 8px; background: var(--surface); }
+.risk-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.risk-summary strong { color: var(--risk-ink); font-size: 12px; font-weight: 600; }
+.risk-reference-button { margin-left: auto; min-height: 32px; padding: 5px 9px; border: 1px solid var(--border2); border-radius: 6px; color: var(--text2); background: var(--surface2); font: inherit; font-size: 12px; }
+.risk-flags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.risk-flag { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 5px 8px; max-width: 100%; border: 1px solid color-mix(in srgb, var(--risk-color) 36%, transparent); border-radius: 6px; background: color-mix(in srgb, var(--risk-color) 9%, var(--surface)); color: var(--risk-ink); font: inherit; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
+.risk-flag-level { text-transform: uppercase; font-size: 9px; font-weight: 700; letter-spacing: .04em; }
+.risk-occurrences { margin-left: 2px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.risk-hint, .risk-location { margin-top: 8px; color: var(--text2); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.risk-location:empty { display: none; }
+.risk-reference-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: var(--risk-inset) var(--risk-inset) 0; flex-shrink: 0; }
+.risk-reference-header h2 { font-size: 16px; }
+.risk-reference-header button { min-height: 44px; }
+.risk-reference-intro { margin: 12px var(--risk-inset) 16px; color: var(--text2); font-size: 12px; line-height: 1.65; flex-shrink: 0; }
+.risk-reference-group + .risk-reference-group { margin-top: 20px; }
+.risk-reference-group h3 { display: flex; align-items: center; justify-content: space-between; margin: 0 0 8px; color: var(--risk-ink); font-size: 13px; }
+.risk-reference-group h3 span { color: var(--text2); font-size: 12px; font-weight: 400; }
+.risk-reference-group ul { list-style: none; padding: 0; margin: 0; }
+.risk-reference-item { padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); }
+.risk-reference-item + .risk-reference-item { margin-top: 8px; }
+.risk-reference-item.is-detected { border-color: color-mix(in srgb, var(--risk-color) 50%, var(--border)); background: color-mix(in srgb, var(--risk-color) 7%, var(--surface)); }
+.risk-reference-title { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; color: var(--text); font-size: 13px; }
+.risk-reference-title > span { color: var(--risk-ink); font-size: 11px; font-weight: 600; }
+.risk-reference-item p { margin-top: 6px; color: var(--text2); font-size: 12px; line-height: 1.65; }
+.risk-reference-item code { display: block; margin-top: 8px; color: var(--text2); font: 11.5px/1.7 var(--mono); }
+:root[data-theme="custom"] .cm-gutters { color: var(--text2); }
+::highlight(sfvi-risk-critical) { background-color: color-mix(in srgb, var(--danger) 14%, transparent); text-decoration: underline var(--danger); }
+::highlight(sfvi-risk-high) { background-color: color-mix(in srgb, var(--orange) 14%, transparent); text-decoration: underline var(--orange); }
+::highlight(sfvi-risk-medium) { background-color: color-mix(in srgb, var(--accent-link) 14%, transparent); text-decoration: underline var(--accent-link); }
+@media (hover: hover) and (pointer: fine) {
+  .risk-flag:hover { background: color-mix(in srgb, var(--risk-color) 15%, var(--surface)); }
+  .risk-reference-button:hover { color: var(--text); border-color: var(--text3); }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .risk-flag, .risk-reference-button { min-height: 44px; }
+}
 @media (max-width: 760px) {
+  #sfvi-allrisks-popup { --risk-inset: 16px; }
   .app { flex-direction: column; }
   .sidebar { width: 100% !important; min-width: 0; height: auto; flex-shrink: 0; border-bottom: 1px solid var(--border); }
   .sidebar-header { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 8px; padding: 10px 16px; }

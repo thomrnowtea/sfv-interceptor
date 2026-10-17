@@ -71,5 +71,4 @@ jobs:
             --repo "$GH_REPO" \
             --verify-tag \
             --title "SFV Interceptor $RELEASE_TAG" \
-            --generate-notes \
             --notes-file docs/release-body.md

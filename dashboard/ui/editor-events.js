@@ -3,7 +3,7 @@ import { msg, showToast } from '../core/utils.js';
 import { mountEditor, getEditorValue, setEditorValue, formatEditor } from '../editor/editor.js';
 import { bodyLanguage } from '../editor/formatter.js';
 import { compactRuleCopy } from '../editor/compact.js';
-import { analyzeCode, showSecurityWarning, updateRiskBar } from '../core/security.js';
+import { inspectRuleCode, showSecurityWarning, updateRiskBar, scheduleRiskAnalysis } from '../core/security.js';
 import { isRemoteRule, normalizeVersion } from '../../shared/rule-schema.js';
 
 const RESPONSE_IDS = { static: 'f-body-static', dynamic: 'f-body-dynamic' };
@@ -110,6 +110,7 @@ function bindResourceTypes(editor) {
       document.getElementById('subtype-selector').style.display = editor.resourceType === 'html' ? 'flex' : 'none';
       document.getElementById('graphql-fields').style.display = editor.resourceType === 'graphql' ? '' : 'none';
       checkDirty(editor);
+      updateRiskBar(editor);
     });
   });
   editor.body.querySelectorAll('.subtype-btn').forEach(button => {
@@ -118,6 +119,7 @@ function bindResourceTypes(editor) {
       editor.formatRevision++;
       selectButton(button, '.subtype-btn');
       checkDirty(editor);
+      updateRiskBar(editor);
     });
   });
 }
@@ -131,7 +133,7 @@ function bindBodyTabs(editor, selector, property, dataKey, panels) {
       selectButton(button, selector);
       for (const [kind, id] of Object.entries(panels)) document.getElementById(id).style.display = type === kind ? '' : 'none';
       checkDirty(editor);
-      updateRiskBar();
+      updateRiskBar(editor);
     });
   });
 }
@@ -140,9 +142,9 @@ function mountBodies(editor, readOnly) {
   const ids = [...Object.values(REQUEST_IDS), ...Object.values(RESPONSE_IDS)];
   for (const id of ids) {
     mountEditor(id, value(id), () => {
-      checkDirty(editor);
-      updateRiskBar();
-    }, { readOnly, getLanguage: () => bodyLanguage(id, editor), contextVersion: () => editor.formatRevision });
+      if (!readOnly) checkDirty(editor);
+    }, { readOnly, getLanguage: () => bodyLanguage(id, editor), contextVersion: () => editor.formatRevision,
+      onVisibleChange: () => scheduleRiskAnalysis(editor) });
   }
 }
 
@@ -178,9 +180,8 @@ function validateEditorRule(rule) {
   }
 }
 
-async function approveResponse(rule) {
-  if (rule.response.type !== 'dynamic') return true;
-  const risks = analyzeCode(rule.response.body);
+async function approveCode(rule) {
+  const risks = inspectRuleCode(rule).filter(risk => risk.sev >= 2);
   return risks.length === 0 || await showSecurityWarning(risks);
 }
 
@@ -210,7 +211,7 @@ async function saveEditedRule(editor) {
     const rule = collectRule(editor);
     const captured = JSON.stringify(rule);
     validateEditorRule(rule);
-    if (!await approveResponse(rule)) return;
+    if (!await approveCode(rule)) return;
     const saved = await persistEditedRule(editor, rule, captured);
     if (!saved) return;
     await rememberSavedRule(saved);
@@ -249,6 +250,7 @@ function bindReadOnlyEditor(editor) {
   editor.saveButton.style.display = 'none';
   document.getElementById('btn-source-details').addEventListener('click', editor.callbacks.showSources);
   mountBodies(editor, true);
+  updateRiskBar(editor);
 }
 
 export function bindRuleEditor(rule, isNew, callbacks, buildPairRow) {
@@ -282,5 +284,5 @@ export function bindRuleEditor(rule, isNew, callbacks, buildPairRow) {
   editor.saveButton.addEventListener('click', () => saveEditedRule(editor));
   document.getElementById('btn-delete')?.addEventListener('click', () => deleteEditedRule(editor));
   checkDirty(editor);
-  updateRiskBar();
+  updateRiskBar(editor);
 }

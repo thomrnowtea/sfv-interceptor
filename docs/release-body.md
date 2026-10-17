@@ -1,16 +1,14 @@
-Download the versioned **SFV Interceptor ZIP** asset below. The automatically generated **Source code** archives contain the development repository; the named extension ZIP contains the files needed to run it.
+### Changes
 
-### Install
+- Reworked 16 code review flags with syntax-aware detection and fewer false positives.
+- Added severity-colored source highlights and navigation to each flagged occurrence.
+- Fixed flag dialogs, contrast and accidental dashboard scrolling.
+- Updated the footer link to open the public repository.
 
-1. Extract the extension ZIP into a folder you will keep.
-2. Open `chrome://extensions` and enable **Developer mode**.
-3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
-4. Pin SFV Interceptor from Chrome's extensions menu.
+[Full changelog](https://github.com/thomrnowtea/sfv-interceptor/compare/v1.3.0...v1.3.1)
 
-No Node installation, build step, account, or server is needed to use the extension.
+Download **sfv-interceptor-v1.3.1.zip** below. See the [installation instructions](https://github.com/thomrnowtea/sfv-interceptor#installation).
 
-### Update
+To update, replace the files in the existing extension folder and click **Reload** in `chrome://extensions`. Reopen the dashboard and reload host pages. Keeping the same folder preserves stored rules and settings.
 
-Extract the newer release into the same extension folder, then click **Reload** on SFV Interceptor in `chrome://extensions`. Reload open pages and reopen the dashboard. Keeping the same folder and installed extension preserves its stored rules and settings. ZIP releases update manually.
-
-The accompanying `.sha256` file contains the ZIP's SHA-256 checksum.
+The accompanying `.sha256` file contains the ZIP checksum.

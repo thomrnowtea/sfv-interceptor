@@ -1,6 +1,7 @@
 import { themedHighlightStyle } from './highlight.js';
 import { formatSelection } from './formatter.js';
 import { showToast } from '../core/utils.js';
+import { registerRiskEditor, refreshRiskHighlights, clearRiskHighlights } from './risk-highlights.js';
 export { formatJS } from './formatter.js';
 
 let cmEditors = {};
@@ -24,14 +25,14 @@ function editorChanged(textarea, visible, onChange) {
 export function initCodeMirror() { return !!window.CM6; }
 
 export function mountEditor(textareaId, code, onChange, {
-  readOnly = false, getLanguage = () => 'javascript', contextVersion = () => 0,
+  readOnly = false, getLanguage = () => 'javascript', contextVersion = () => 0, onVisibleChange,
 } = {}) {
   const textarea = document.getElementById(textareaId);
   if (!textarea) return null;
 
   textarea.value = code;
   textarea.readOnly = readOnly;
-  editorValues.set(textarea, { backing: code, revision: 0, presentations: new Map([[code, code]]) });
+  editorValues.set(textarea, { backing: code, revision: 0, presentations: new Map([[code, code]]), onVisibleChange });
 
   const presentInitialCode = () => {
     void formatEditor(textareaId, { language: getLanguage(), contextVersion, automatic: true });
@@ -44,6 +45,7 @@ export function mountEditor(textareaId, code, onChange, {
     textarea.addEventListener('input', () => {
       fallback.revision++;
       editorChanged(textarea, textarea.value, onChange);
+      onVisibleChange?.();
     });
     presentInitialCode();
     return null;
@@ -87,7 +89,7 @@ export function mountEditor(textareaId, code, onChange, {
     extensions: [
       EditorState.readOnly.of(readOnly),
       EditorView.editable.of(!readOnly),
-      EditorView.contentAttributes.of({ 'aria-label': textarea.getAttribute('aria-label') || 'Code editor', ...(readOnly ? { tabindex: '0', 'aria-readonly': 'true' } : {}) }),
+      EditorView.contentAttributes.of({ 'aria-label': textarea.getAttribute('aria-label') || 'Code editor', tabindex: '0', ...(readOnly ? { 'aria-readonly': 'true' } : {}) }),
       lineNumbers(),
       highlightActiveLine(),
       drawSelection(),
@@ -115,7 +117,9 @@ export function mountEditor(textareaId, code, onChange, {
           const visible = update.state.doc.toString();
           if (update.transactions.every(transaction => transaction.isUserEvent(PRESENTATION_EVENT))) textarea.value = visible;
           else editorChanged(textarea, visible, onChange);
+          onVisibleChange?.();
         }
+        if (update.docChanged || update.viewportChanged) refreshRiskHighlights();
       }),
       theme,
     ],
@@ -123,6 +127,7 @@ export function mountEditor(textareaId, code, onChange, {
 
   const view = new EditorView({ state: edState, parent: wrap });
   cmEditors[textareaId] = view;
+  registerRiskEditor(textareaId, view);
   presentInitialCode();
   return view;
 }
@@ -177,6 +182,7 @@ function applyFormat(snapshot, result, automatic) {
   snapshot.textarea.setSelectionRange(result.anchorOffset, result.cursorOffset, snapshot.selectionDirection);
   snapshot.textarea.scrollTop = scrollTop;
   snapshot.textarea.scrollLeft = scrollLeft;
+  snapshot.value.onVisibleChange?.();
 }
 
 function setFormatButtonBusy(button, snapshot, busy) {
@@ -235,6 +241,7 @@ export function setEditorValue(id, code) {
 }
 
 export function destroyEditors() {
+  clearRiskHighlights();
   Object.values(cmEditors).forEach(v => { try { v.destroy(); } catch {} });
   cmEditors = {};
 }

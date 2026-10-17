@@ -77,6 +77,16 @@ try {
   assert.ok(formatted.pretty.includes('\n'));
   assert.equal(formatted.compact.includes('\n'), false);
   assert.equal(JSON.parse(formatted.compact)[0].response.body.includes('\n'), false);
+  const reviewSource = 'function modifyResponse(args) { const cookie = document.cookie; fetch("/preview"); return args.response; }';
+  await dashboard.evaluate(async code => {
+    const { setEditorValue } = await import(chrome.runtime.getURL('dashboard/editor/editor.js'));
+    setEditorValue('f-body-dynamic', code);
+  }, reviewSource);
+  await dashboard.locator('#sfvi-risk-bar [data-risk-id="cookie_read"]').click();
+  await dashboard.waitForFunction(() => [...(CSS.highlights.get('sfvi-risk-high') || [])].some(range => range.toString() === 'document.cookie'));
+  assert.equal(await dashboard.evaluate(() => document.scrollingElement.scrollHeight <= innerHeight + 1), true);
+  const unchanged = await dashboard.evaluate(() => chrome.runtime.sendMessage({ type: 'GET_RULES' }));
+  assert.equal(unchanged.rules[0].response.body, rule.response.body, 'Flag inspection must not change the saved executable rule');
   await dashboard.evaluate(() => document.fonts.ready);
   assert.equal(await dashboard.evaluate(() => document.fonts.check('600 13px Manrope')), true);
   await dashboard.screenshot({ path: join(artifacts, 'dashboard.png') });
@@ -116,14 +126,14 @@ try {
   const [opened] = await Promise.all([context.waitForEvent('page'), popup.locator('#open-dashboard').click()]);
   await opened.waitForURL(extension + '/dashboard/dashboard.html');
   await opened.locator('#btn-new').waitFor();
-  for (const required of ['dashboard/editor/codemirror-bundle.js', 'shared/fonts/manrope-latin-wght-normal.woff2', 'shared/vendor/prettier/standalone.mjs', 'shared/vendor/terser/terser.mjs', 'sandbox/sandbox.js']) {
+  for (const required of ['dashboard/editor/codemirror-bundle.js', 'dashboard/core/risk-analysis.js', 'dashboard/core/risk-catalog.js', 'dashboard/core/risk-syntax.js', 'dashboard/editor/risk-highlights.js', 'shared/fonts/manrope-latin-wght-normal.woff2', 'shared/vendor/prettier/standalone.mjs', 'shared/vendor/terser/terser.mjs', 'sandbox/sandbox.js']) {
     assert.ok(observedAssets.has(required), `Packaged runtime asset was not exercised: ${required}`);
   }
   assert.deepEqual(errors, []);
   writeFileSync(join(artifacts, 'results.json'), JSON.stringify({
     version, zipName, bytes: archive.length, checksum, fileCount: Object.keys(files).length,
     session: { browser: await dashboard.evaluate(() => navigator.userAgent), extensionRoot: unpacked, repositoryLoaded: false },
-    checks: ['checksum and exact contents', 'isolated empty profile', 'worker messaging', 'dashboard editor and CodeMirror', 'Prettier and Terser', 'bundled Manrope', 'dynamic API interception and activity', 'popup light/dark and activation', 'dashboard action', 'no runtime asset failures'],
+    checks: ['checksum and exact contents', 'isolated empty profile', 'worker messaging', 'dashboard editor and CodeMirror', 'Prettier and Terser', 'code review flags and source highlights', 'no accidental document scroll', 'bundled Manrope', 'dynamic API interception and activity', 'popup light/dark and activation', 'dashboard action', 'no runtime asset failures'],
     observedAssets: [...observedAssets].sort(), errors,
   }, null, 2));
   console.log(`Release smoke passed: ${zipName}, ${Object.keys(files).length} files, ${archive.length} bytes; extracted ZIP works without repository files.`);
