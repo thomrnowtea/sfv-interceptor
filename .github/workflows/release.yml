@@ -76,5 +76,5 @@ jobs:
             "dist/sfv-interceptor-$RELEASE_TAG.zip.sha256" \
             --repo "$GH_REPO" \
             --verify-tag \
-            --title "SFV Interceptor $RELEASE_TAG" \
+            --title "$RELEASE_TAG" \
             --notes-file docs/release-body.md
