@@ -28,7 +28,7 @@
   const _nativeFetch = _s.nativeFetch;
   const _NativeXHR   = _s.NativeXHR;
 
-  const _origin = location.origin || '*';
+  const _origin = location.origin && location.origin !== 'null' ? location.origin : '*';
   if (_s.installed) {
     window.postMessage({ type: '__sfvi_hook_ready__' }, _origin);
     return;
@@ -277,7 +277,16 @@
 
   // ── State ─────────────────────────────────────────────────────────────────
   const STATE = { apis: [], generation: 0 };
-  const _regexCache = new Map();
+  let _regexCache = new WeakMap();
+
+  function ruleRegex(rule) {
+    if (!rule.regex) return null;
+    if (!_regexCache.has(rule)) {
+      try { _regexCache.set(rule, new RegExp(rule.regex, rule.caseSensitive ? '' : 'i')); }
+      catch { _regexCache.set(rule, null); }
+    }
+    return _regexCache.get(rule);
+  }
 
   function updateApis(apis, activity = null) {
     const generation = activity?.configGeneration || apis[0]?.configGeneration || 0;
@@ -286,28 +295,35 @@
     if (generation < STATE.generation) return;
     STATE.generation = generation;
     STATE.apis = apis.map(rule => ({ ...rule, activity: activity ? { ...activity } : null }));
-    _regexCache.clear();
-    for (const rule of apis) {
-      if (rule.regex) {
-        try { _regexCache.set(rule.regex, new RegExp(rule.regex, 'i')); } catch {}
-      }
-    }
+    _regexCache = new WeakMap();
   }
   _s.updateApis = updateApis;
   window.addEventListener('pageshow', event => {
     if (event.persisted) {
       STATE.apis = [];
-      _regexCache.clear();
+      _regexCache = new WeakMap();
     }
   });
 
   function _waitForSandbox() {
-    return new Promise((resolve) => {
-      function check() {
-        const iframe = document.getElementById('__sfvi_sandbox__');
-        if (iframe && iframe.contentWindow) resolve();
-        else setTimeout(check, 50);
+    return new Promise((resolve, reject) => {
+      const expires = Date.now() + 5000;
+      let timer;
+      function cleanup() {
+        clearTimeout(timer);
+        window.removeEventListener('message', ready);
       }
+      function ready(event) {
+        const target = document.getElementById('__sfvi_sandbox__')?.contentWindow;
+        if (!target || event.source !== target || event.data?.type !== '__sfvi_sandbox_ready__') return;
+        cleanup(); resolve(target);
+      }
+      function check() {
+        if (Date.now() >= expires) { cleanup(); reject(new Error('Sandbox readiness timeout')); return; }
+        document.getElementById('__sfvi_sandbox__')?.contentWindow?.postMessage({ type: '__sfvi_sandbox_ping__' }, '*');
+        timer = setTimeout(check, 50);
+      }
+      window.addEventListener('message', ready);
       check();
     });
   }
@@ -331,10 +347,7 @@
   }
 
   function matchesRule(url, rule) {
-    if (!rule.regex) return false;
-    const re = _regexCache.get(rule.regex);
-    if (re) return re.test(url);
-    try { return new RegExp(rule.regex, 'i').test(url); } catch { return false; }
+    return ruleRegex(rule)?.test(url) || false;
   }
 
   function notifyApplied(rule, url) {
@@ -349,7 +362,7 @@
     try { _sfviToast('', 'Rule Applied', rule.name || title, title + ' \u00b7 ' + status, rule.color || '#22d3ee'); } catch {}
   }
 
-  function buildResponse(rule, body, requestUrl) {
+  function buildResponse(rule, body, requestUrl, method) {
     const status  = parseInt(rule.statusCode) || 200;
     const headers = { 'Content-Type': 'application/json; charset=utf-8' };
     if (rule.customHeaders) {
@@ -360,7 +373,7 @@
         Object.assign(headers, custom);
       } catch {}
     }
-    const resp = new Response(body, { status, headers });
+    const resp = new Response(hasResponseBody(method, status) ? body : null, { status, headers });
     // Stealth: native Response.url equals the request URL — match it on mocks.
     if (requestUrl) {
       try { Object.defineProperty(resp, 'url', { value: requestUrl, configurable: true }); } catch {}
@@ -368,30 +381,115 @@
     return resp;
   }
 
-  function matchesGqlOperation(rule, requestBody) {
-    if (!rule.gqlOperation) return true;
-    if (!requestBody) return false;
-    try {
-      const bodyStr = typeof requestBody === 'string'
-        ? requestBody : JSON.stringify(requestBody);
-      const parsed = JSON.parse(bodyStr);
-      if (parsed.operationName) return parsed.operationName === rule.gqlOperation;
-      return (parsed.query || '').includes(rule.gqlOperation);
-    } catch {
-      return String(requestBody).includes(rule.gqlOperation);
+  function hasResponseBody(method, status) {
+    return method !== 'HEAD' && ![204, 205, 304].includes(status);
+  }
+
+  function gqlRequest(request) {
+    if (request.method === 'GET') {
+      const query = new URL(request.url).searchParams;
+      return { operationName: query.get('operationName'), query: query.get('query') };
     }
+    if (typeof request.body !== 'string') return request.body;
+    return parseJson(request.body) ?? { query: request.body };
+  }
+
+  function gqlDefinitionName(tokens, index) {
+    if (!['query', 'mutation', 'subscription'].includes(tokens[index])) return null;
+    return /^[_A-Za-z][_0-9A-Za-z]*$/.test(tokens[index + 1] || '') ? tokens[index + 1] : null;
+  }
+
+  function gqlTokens(query) {
+    const tokens = query.match(/#[^\r\n]*|"""(?:\\"""|[^])*?"""|"(?:\\[^]|[^"\\])*"|[_A-Za-z][_0-9A-Za-z]*|[{}()[\]]/g) || [];
+    return tokens.filter(token => !['#', '"'].includes(token[0]));
+  }
+
+  function gqlOperationNames(query) {
+    // Lex only definition boundaries; this is operation selection, not schema validation.
+    const tokens = gqlTokens(query);
+    let depth = 0;
+    let definition = false;
+    const names = [];
+    for (let index = 0; index < tokens.length; index++) {
+      const token = tokens[index];
+      if (depth === 0 && !definition) {
+        if (['query', 'mutation', 'subscription', '{'].includes(token)) names.push(gqlDefinitionName(tokens, index));
+        definition = true;
+      }
+      if ('{(['.includes(token)) depth++;
+      if ('})]'.includes(token)) depth--;
+      if (depth === 0 && token === '}') definition = false;
+    }
+    return names;
+  }
+
+  function matchesGqlOperation(rule, request) {
+    if (!rule.gqlOperation) return true;
+    const payload = gqlRequest(request);
+    if (!payload || Array.isArray(payload)) return false;
+    if (payload.operationName) return payload.operationName === rule.gqlOperation;
+    if (typeof payload.query !== 'string') return false;
+    const names = gqlOperationNames(payload.query);
+    return names.length === 1 && names[0] === rule.gqlOperation;
   }
 
   // Rules are treated as trusted code: responseBody runs in MAIN world with full page access.
+  function serializeModifierResult(result) {
+    if (result && typeof result.then === 'function') return Promise.resolve(result).then(serializeModifierResult);
+    return result == null ? '' : (typeof result === 'string' ? result : JSON.stringify(result));
+  }
+
+  function modifierError(error) {
+    try { return String(error?.message ?? error) || 'Modifier failed'; }
+    catch { return 'Modifier failed'; }
+  }
+
+  function synchronousModifierResult(result) {
+    if (result && typeof result.then === 'function') {
+      Promise.resolve(result).catch(() => {});
+      throw new Error('Async modifiers cannot complete during a synchronous XMLHttpRequest');
+    }
+    return result;
+  }
+
+  function compileModifier(code, name) {
+    return new Function(code + '\nreturn ' + name + '(arguments[0]);');
+  }
+
+  function runModifierSafe(code, name, args, remote) {
+    let fn;
+    try { fn = compileModifier(code, name); }
+    catch (error) {
+      const isCsp = error instanceof EvalError || /CSP|Content Security Policy|unsafe-eval|evaluating a string as javascript/i.test(error.message);
+      if (isCsp) return remote();
+      throw error;
+    }
+    // Once user code starts, its errors must never cause a second execution.
+    return serializeModifierResult(fn(args));
+  }
+
   function runModifyResponse(rule, args) {
-    const fn  = new Function(rule.responseBody + '\nreturn modifyResponse(arguments[0]);');
-    const res = fn(args);
-    return res == null ? '' : (typeof res === 'string' ? res : JSON.stringify(res));
+    const fn = compileModifier(rule.responseBody, 'modifyResponse');
+    return serializeModifierResult(fn(args));
+  }
+
+  function sandboxReply(data) {
+    const result = Object.hasOwn(data, 'result');
+    const error = Object.hasOwn(data, 'error');
+    if (result === error) throw new Error('Invalid sandbox response');
+    if (error && typeof data.error === 'string') return { error: new Error(data.error) };
+    if (result && typeof data.result === 'string') return { result: data.result };
+    throw new Error('Invalid sandbox response');
+  }
+
+  function checkedSandboxReply(data) {
+    try { return sandboxReply(data); }
+    catch { return { error: new Error('Invalid sandbox response') }; }
   }
 
   // Remote execution via sandboxed iframe (bypasses iframe CSP)
   async function runModifyResponseRemote(rule, args) {
-    await _waitForSandbox();
+    const target = await _waitForSandbox();
     return new Promise((resolve, reject) => {
       const id = '__sfvi_sandbox_' + Date.now() + '_' + Math.random();
       const timeout = setTimeout(() => {
@@ -400,18 +498,19 @@
       }, 5000);
 
       function handler(ev) {
+        if (ev.source !== target) return;
         if (!ev.data || ev.data.type !== '__sfvi_sandbox_result__') return;
         if (ev.data.id !== id) return;
+        const reply = checkedSandboxReply(ev.data);
         clearTimeout(timeout);
         window.removeEventListener('message', handler);
-        if (ev.data.error) reject(new Error(ev.data.error));
-        else resolve(ev.data.result);
+        if (reply.error) reject(reply.error);
+        else resolve(reply.result);
       }
 
       window.addEventListener('message', handler);
 
-      const iframe = document.getElementById('__sfvi_sandbox__');
-      iframe.contentWindow.postMessage({
+      target.postMessage({
         type: '__sfvi_sandbox_exec__',
         id,
         code: rule.responseBody,
@@ -421,26 +520,17 @@
   }
 
   async function runModifyResponseSafe(rule, args) {
-    try {
-      return runModifyResponse(rule, args);
-    } catch (err) {
-      const isCsp = err instanceof EvalError || /CSP|Content Security Policy|unsafe-eval|evaluating a string as javascript/i.test(err.message);
-      if (isCsp) {
-        return await runModifyResponseRemote(rule, args);
-      }
-      throw err;
-    }
+    return runModifierSafe(rule.responseBody, 'modifyResponse', args, () => runModifyResponseRemote(rule, args));
   }
 
   // ── Request modifier (mutates outgoing body) ──────────────────────────────
   function runModifyRequest(rule, args) {
-    const fn  = new Function(rule.requestBody + '\nreturn modifyRequest(arguments[0]);');
-    const res = fn(args);
-    return res == null ? '' : (typeof res === 'string' ? res : JSON.stringify(res));
+    const fn = compileModifier(rule.requestBody, 'modifyRequest');
+    return serializeModifierResult(fn(args));
   }
 
   async function runModifyRequestRemote(rule, args) {
-    await _waitForSandbox();
+    const target = await _waitForSandbox();
     return new Promise((resolve, reject) => {
       const id = '__sfvi_sandbox_req_' + Date.now() + '_' + Math.random();
       const timeout = setTimeout(() => {
@@ -449,18 +539,19 @@
       }, 5000);
 
       function handler(ev) {
+        if (ev.source !== target) return;
         if (!ev.data || ev.data.type !== '__sfvi_sandbox_result__') return;
         if (ev.data.id !== id) return;
+        const reply = checkedSandboxReply(ev.data);
         clearTimeout(timeout);
         window.removeEventListener('message', handler);
-        if (ev.data.error) reject(new Error(ev.data.error));
-        else resolve(ev.data.result);
+        if (reply.error) reject(reply.error);
+        else resolve(reply.result);
       }
 
       window.addEventListener('message', handler);
 
-      const iframe = document.getElementById('__sfvi_sandbox__');
-      iframe.contentWindow.postMessage({
+      target.postMessage({
         type: '__sfvi_sandbox_exec_request__',
         id,
         code: rule.requestBody,
@@ -470,15 +561,7 @@
   }
 
   async function runModifyRequestSafe(rule, args) {
-    try {
-      return runModifyRequest(rule, args);
-    } catch (err) {
-      const isCsp = err instanceof EvalError || /CSP|Content Security Policy|unsafe-eval|evaluating a string as javascript/i.test(err.message);
-      if (isCsp) {
-        return await runModifyRequestRemote(rule, args);
-      }
-      throw err;
-    }
+    return runModifierSafe(rule.requestBody, 'modifyRequest', args, () => runModifyRequestRemote(rule, args));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -504,7 +587,7 @@
 
   function findApiRule(request) {
     return STATE.apis.find(rule => matchesRule(request.url, rule) &&
-      (!rule.method || rule.method === request.method) && matchesGqlOperation(rule, request.body));
+      (!rule.method || rule.method === request.method) && matchesGqlOperation(rule, request));
   }
 
   function fetchRequestMetadata(input, init) {
@@ -516,7 +599,7 @@
   async function readFetchRequest(input, init) {
     const { objectInput, url, method } = fetchRequestMetadata(input, init);
     let body = init?.body ?? null;
-    if (!body && objectInput && ['POST','PUT','PATCH'].includes(method)) {
+    if (body === null && objectInput && !['GET', 'HEAD'].includes(method)) {
       try { body = await input.clone().text(); } catch {}
     }
     const headers = {};
@@ -531,7 +614,7 @@
       const modified = await runModifyRequestSafe(rule, requestBodyArgs(request));
       return modified == null ? request.body : bodyText(modified);
     } catch (error) {
-      console.error('[SFV-I] Request modification failed:', error.message);
+      console.error('[SFV-I] Request modification failed:', modifierError(error));
       return request.body;
     }
   }
@@ -548,52 +631,86 @@
       options.headers = headers;
     }
     const url = rule.redirectUrl ? toAbs(rule.redirectUrl) : request.url;
-    let finalInput = rule.redirectUrl ? url : input;
-    if (typeof finalInput !== 'string') finalInput = new Request(finalInput, options);
+    const effective = new Request(input, options);
+    const finalInput = rule.redirectUrl ? await redirectFetchRequest(effective, url) : effective;
     const requestChanged = outgoingBody !== request.body || headersChanged || Boolean(rule.redirectUrl);
-    return { input: finalInput, init: options, url, outgoingBody, requestChanged };
+    return { input: finalInput, init: undefined, url, outgoingBody, requestChanged };
+  }
+
+  async function redirectFetchRequest(request, url) {
+    const keys = ['method', 'headers', 'referrer', 'referrerPolicy', 'mode', 'credentials', 'cache', 'redirect', 'integrity', 'keepalive', 'signal'];
+    const options = Object.fromEntries(keys.map(key => [key, request[key]]));
+    // Passing request.body as RequestInit would force streaming upload on HTTP/1.
+    if (request.body) options.body = await request.arrayBuffer();
+    return new Request(url, options);
   }
 
   async function transformFetchResponse(rule, request, prepared) {
     const original = await _nativeFetch(prepared.input, prepared.init);
-    const text = await original.text();
-    const body = await runModifyResponseSafe(rule, {
-      method: request.method, url: prepared.url, response: text, responseJSON: parseJson(text),
-      responseType: original.headers.get('content-type') || '',
-      requestHeaders: request.headers, requestData: prepared.outgoingBody,
-    });
-    return buildResponse(rule, body, prepared.url);
+    try {
+      const text = await original.clone().text();
+      const body = await runModifyResponseSafe(rule, {
+        method: request.method, url: prepared.url, response: text, responseJSON: parseJson(text),
+        responseType: original.headers.get('content-type') || '',
+        requestHeaders: request.headers, requestData: prepared.outgoingBody,
+      });
+      return { response: buildResponse(rule, body, prepared.url, request.method), applied: true };
+    } catch (error) {
+      console.error('[SFV-I] Response modification failed:', modifierError(error));
+      return { response: original, applied: false };
+    }
   }
 
   async function applyFetchResponse(rule, request, prepared) {
     const title = request.method + ' \u00b7 ' + _shortUrl(prepared.url);
     if (!rule.responseBody) {
       const response = await _nativeFetch(prepared.input, prepared.init);
-      if (prepared.requestChanged) completeApplied(rule, prepared.url, title, 'request modified');
-      return response;
+      return { response, applied: prepared.requestChanged, status: 'request modified', title };
     }
     if (rule.responseType !== 'dynamic') {
-      const response = buildResponse(rule, rule.responseBody, prepared.url);
-      completeApplied(rule, prepared.url, title, 'response mocked');
-      return response;
+      const response = buildResponse(rule, rule.responseBody, prepared.url, request.method);
+      return { response, applied: true, status: 'response mocked', title };
     }
-    try {
-      const response = await transformFetchResponse(rule, request, prepared);
-      completeApplied(rule, prepared.url, title, 'response modified');
-      return response;
-    } catch (error) {
-      // Preserve the existing fallback, without presenting a failed transform as success.
-      console.error('[SFV-I] Response modification failed:', error.message);
-      return buildResponse(rule, rule.responseBody, prepared.url);
+    const result = await transformFetchResponse(rule, request, prepared);
+    return { ...result, status: 'response modified', title };
+  }
+
+  function withAbort(operation, signal) {
+    if (!signal) return operation;
+    if (signal.aborted) {
+      Promise.resolve(operation).catch(() => {});
+      return Promise.reject(signal.reason);
     }
+    return new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      Promise.resolve(operation).then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
+  }
+
+  async function responseDelay(delay, signal) {
+    if (!(delay > 0)) return;
+    let timer;
+    try { await withAbort(new Promise(resolve => { timer = setTimeout(resolve, delay); }), signal); }
+    finally { clearTimeout(timer); }
   }
 
   const _fetchOverride = async function fetch(input, init) {
-    const request = await readFetchRequest(input, init);
-    const rule = findApiRule(request);
+    const metadata = fetchRequestMetadata(input, init);
+    const candidates = STATE.apis.filter(rule => matchesRule(metadata.url, rule) && (!rule.method || rule.method === metadata.method));
+    if (!candidates.length) return _nativeFetch(input, init);
+    const signal = init?.signal === undefined ? input?.signal : init.signal;
+    signal?.throwIfAborted();
+    const request = await withAbort(readFetchRequest(input, init), signal);
+    const rule = candidates.find(rule => matchesGqlOperation(rule, request));
     if (!rule) return _nativeFetch(input, init);
-    const prepared = await prepareFetchRequest(input, init, rule, request);
-    return applyFetchResponse(rule, request, prepared);
+    const prepared = await withAbort(prepareFetchRequest(input, init, rule, request), signal);
+    prepared.input.signal.throwIfAborted();
+    const result = await withAbort(applyFetchResponse(rule, request, prepared), prepared.input.signal);
+    await responseDelay(rule.delay, prepared.input.signal);
+    prepared.input.signal.throwIfAborted();
+    if (result.applied) completeApplied(rule, prepared.url, result.title, result.status);
+    return result.response;
   };
   _nativables.add(_fetchOverride);
   window.fetch = _fetchOverride;
@@ -602,44 +719,167 @@
   // XHR OVERRIDE
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const _protoOpen = XMLHttpRequest.prototype.open;
-  const _protoSend = XMLHttpRequest.prototype.send;
-  const _protoSetH = XMLHttpRequest.prototype.setRequestHeader;
+  const _xhrPrototype = _NativeXHR.prototype;
+  function xhrProperty(name) {
+    for (let prototype = _xhrPrototype; prototype; prototype = Object.getPrototypeOf(prototype)) {
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+      if (descriptor) return descriptor;
+    }
+  }
+
+  const _timeoutProperty = xhrProperty('timeout');
+  const _uploadProperty = xhrProperty('upload');
+  function canPatchXhr() {
+    return typeof _timeoutProperty?.get === 'function' && typeof _timeoutProperty?.set === 'function' &&
+      typeof _uploadProperty?.get === 'function' && ['timeout', 'upload'].every(name =>
+        Object.getOwnPropertyDescriptor(_xhrPrototype, name)?.configurable !== false) && Object.isExtensible(_xhrPrototype);
+  }
+  // A page may already wrap XHR. Unsupported shapes keep their existing behavior.
+  if (!canPatchXhr()) return;
+  const _protoOpen = _xhrPrototype.open;
+  const _protoSend = _xhrPrototype.send;
+  const _protoSetH = _xhrPrototype.setRequestHeader;
+  const _protoAbort = _xhrPrototype.abort;
+  const _eventAdd = EventTarget.prototype.addEventListener;
+  const _eventRemove = EventTarget.prototype.removeEventListener;
+  const _uploadListeners = new WeakMap();
+  const _uploadEvents = ['loadstart', 'progress', 'load', 'loadend', 'error', 'abort', 'timeout'];
+  const _xhrStates = new WeakMap();
+
+  function uploadOptions(options) {
+    if (typeof options === 'boolean') return { capture: options };
+    return { capture: Boolean(options?.capture), once: Boolean(options?.once), passive: options?.passive, signal: options?.signal };
+  }
+
+  function forgetUploadListener(records, record) {
+    const index = records.indexOf(record);
+    if (index >= 0) records.splice(index, 1);
+    record.options.signal?.removeEventListener('abort', record.abort);
+  }
+
+  function activeUploadListeners(target) {
+    const records = _uploadListeners.get(target) || [];
+    // Native abort algorithms run before the suppressible abort event cleanup.
+    for (const record of [...records]) {
+      if (record.options.signal?.aborted) forgetUploadListener(records, record);
+    }
+    return records;
+  }
+
+  function addUploadListener(target, type, listener, options) {
+    const normalized = uploadOptions(options);
+    const records = activeUploadListeners(target);
+    const previous = records.find(record => record.type === type && record.listener === listener && record.options.capture === normalized.capture);
+    if (previous) return _eventAdd.call(target, type, previous.wrapped, normalized);
+    const record = { type, listener, options: normalized };
+    record.abort = () => forgetUploadListener(records, record);
+    record.wrapped = function(event) {
+      if (normalized.once) forgetUploadListener(records, record);
+      if (typeof listener === 'function') listener.call(this, event);
+      else listener.handleEvent(event);
+    };
+    _eventAdd.call(target, type, record.wrapped, normalized);
+    if (normalized.signal?.aborted) return;
+    records.push(record);
+    normalized.signal?.addEventListener('abort', record.abort, { once: true });
+  }
+
+  function watchUpload(target) {
+    if (_uploadListeners.has(target)) return target;
+    const records = [];
+    _uploadListeners.set(target, records);
+    const add = function addEventListener(type, listener, options) {
+      if (arguments.length < 2 || !_uploadListeners.has(this)) return Reflect.apply(_eventAdd, this, arguments);
+      if (!listener || !['function', 'object'].includes(typeof listener)) return _eventAdd.call(this, type, listener, options);
+      return addUploadListener(this, '' + type, listener, options);
+    };
+    const remove = function removeEventListener(type, listener, options) {
+      if (arguments.length < 2 || !_uploadListeners.has(this)) return Reflect.apply(_eventRemove, this, arguments);
+      const name = '' + type;
+      const capture = typeof options === 'boolean' ? options : Boolean(options?.capture);
+      const records = activeUploadListeners(this);
+      const record = records.find(item => item.type === name && item.listener === listener && item.options.capture === capture);
+      _eventRemove.call(this, name, record ? record.wrapped : listener, capture);
+      if (record) forgetUploadListener(records, record);
+    };
+    _nativables.add(add); _nativables.add(remove);
+    Object.defineProperties(target, { addEventListener: { value: add, configurable: true, writable: true },
+      removeEventListener: { value: remove, configurable: true, writable: true } });
+    return target;
+  }
+
+  const _xhrUpload = function upload() { return watchUpload(_uploadProperty.get.call(this)); };
+  _nativables.add(_xhrUpload);
+  Object.defineProperty(_xhrPrototype, 'upload', { ..._uploadProperty, get: _xhrUpload });
+
+  function observesUpload(xhr) {
+    const target = _uploadProperty.get.call(xhr);
+    return Boolean(activeUploadListeners(target).length) || _uploadEvents.some(type => typeof target['on' + type] === 'function');
+  }
+
+  function scheduleXhrTimeout(xhr, state) {
+    clearTimeout(state.deadline);
+    if (state.done || state.isSync || xhr.timeout === 0) return;
+    const remaining = Math.max(0, xhr.timeout - (performance.now() - state.started));
+    state.deadline = setTimeout(() => expireXhrTimeout(xhr, state), Math.min(remaining, 2147483647));
+  }
+
+  function expireXhrTimeout(xhr, state) {
+    if (performance.now() - state.started < xhr.timeout) return scheduleXhrTimeout(xhr, state);
+    failXhr(xhr, state, 'timeout');
+  }
+
+  const _xhrTimeout = function timeout(value) {
+    _timeoutProperty.set.call(this, value);
+    const state = _xhrStates.get(this);
+    if (state) scheduleXhrTimeout(this, state);
+  };
+  _nativables.add(_xhrTimeout);
+  Object.defineProperty(_xhrPrototype, 'timeout', { ..._timeoutProperty, set: _xhrTimeout });
+
+  function stopXhr(state) {
+    if (!state) return;
+    state.done = true;
+    clearTimeout(state.timer);
+    clearTimeout(state.deadline);
+    state.real?.abort();
+  }
 
   const _xhrOpen = function open(method, url, async = true, user, pass) {
+    stopXhr(_xhrStates.get(this));
+    _xhrStates.delete(this);
     this[_URL]    = toAbs(String(url));
     this[_METHOD] = (method || 'GET').toUpperCase();
     this[_HDRS]   = {};
     this[_ASYNC]  = async !== false;
-    for (const k of ['readyState', 'status', 'statusText', 'responseText', 'response', 'responseURL']) {
+    for (const k of ['readyState', 'status', 'statusText', 'responseText', 'response', 'responseXML', 'responseURL', 'getResponseHeader', 'getAllResponseHeaders']) {
       try { delete this[k]; } catch {}
     }
     return _protoOpen.call(this, method, url, async, user, pass);
   };
   _nativables.add(_xhrOpen);
-  try { XMLHttpRequest.prototype.open = _xhrOpen; } catch { return; }
+  try { _xhrPrototype.open = _xhrOpen; } catch { return; }
 
   const _xhrSetH = function setRequestHeader(name, value) {
     if (this[_HDRS]) this[_HDRS][name] = value;
     return _protoSetH.call(this, name, value);
   };
   _nativables.add(_xhrSetH);
-  try { XMLHttpRequest.prototype.setRequestHeader = _xhrSetH; } catch {}
+  try { _xhrPrototype.setRequestHeader = _xhrSetH; } catch {}
 
   function modifyXhrBody(rule, request) {
     if (!rule.requestBody) return request.body;
     if (rule.requestBodyType === 'static') return rule.requestBody;
     try {
-      const modified = runModifyRequest(rule, requestBodyArgs(request));
+      const modified = synchronousModifierResult(runModifyRequest(rule, requestBodyArgs(request)));
       return modified == null ? request.body : bodyText(modified);
     } catch (error) {
-      console.error('[SFV-I] Request modification failed:', error.message);
+      console.error('[SFV-I] Request modification failed:', modifierError(error));
       return request.body;
     }
   }
 
-  function prepareXhrRequest(rule, request) {
-    const outgoingBody = modifyXhrBody(rule, request);
+  function prepareXhrRequest(rule, request, outgoingBody) {
     const custom = customRequestHeaders(rule);
     return { outgoingBody, headers: { ...request.headers, ...custom },
       url: rule.redirectUrl ? toAbs(rule.redirectUrl) : request.url,
@@ -656,91 +896,258 @@
     catch { try { xhr[key] = value; } catch {} }
   }
 
-  function installXhrHeaders(xhr, realHeaders) {
+  function xhrHeaderMap(realHeaders) {
     const text = typeof realHeaders === 'string' ? realHeaders : '';
     const headers = new Map();
     for (const line of text.split(/\r?\n/)) {
       const index = line.indexOf(':');
       if (index > 0) headers.set(line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim());
     }
-    defineXhrMethod(xhr, 'getResponseHeader', name => headers.get(String(name).toLowerCase()) || null);
+    return headers;
+  }
+
+  function installXhrHeaders(xhr, realHeaders, rule = null) {
+    const headers = xhrHeaderMap(realHeaders);
+    if (rule) {
+      if (!headers.has('content-type')) headers.set('content-type', 'application/json; charset=utf-8');
+      const custom = typeof rule.customHeaders === 'string' ? parseJson(rule.customHeaders) : rule.customHeaders;
+      for (const [key, value] of Object.entries(custom || {})) headers.set(key.toLowerCase(), String(value));
+    }
+    const text = [...headers].map(([key, value]) => key + ': ' + value + '\r\n').join('');
+    defineXhrMethod(xhr, 'getResponseHeader', name => headers.get(String(name).toLowerCase()) ?? null);
     defineXhrMethod(xhr, 'getAllResponseHeaders', () => text);
   }
 
-  function fireXhrEvents(xhr) {
-    xhr.dispatchEvent(new Event('readystatechange'));
-    if (typeof xhr.onreadystatechange === 'function') xhr.onreadystatechange();
-    xhr.dispatchEvent(new ProgressEvent('load'));
-    xhr.dispatchEvent(new ProgressEvent('loadend'));
-    if (typeof xhr.onload === 'function') xhr.onload(new ProgressEvent('load'));
-    if (typeof xhr.onloadend === 'function') xhr.onloadend(new ProgressEvent('loadend'));
+  function fireXhrEvents(xhr, state) {
+    for (const type of ['readystatechange', 'load', 'loadend']) {
+      if (_xhrStates.get(xhr) !== state || xhr.readyState !== 4) return;
+      xhr.dispatchEvent(type === 'readystatechange' ? new Event(type) : new ProgressEvent(type, state.progress));
+    }
   }
 
-  function xhrResponseProps(rule, prepared, body, realStatus, realStatusText) {
-    const status = realStatus || parseInt(rule.statusCode) || 200;
+  function xhrResponseProps(rule, prepared, realStatus, realStatusText) {
+    const status = realStatus ?? (parseInt(rule.statusCode) || 200);
     return { readyState: 4, status, statusText: realStatusText || (status === 200 ? 'OK' : String(status)),
-      responseText: body, response: body, responseURL: prepared.url };
+      responseURL: prepared.url };
+  }
+
+  function typedXhrResponse(type, body, contentType) {
+    if (type === 'json') return parseJson(body);
+    if (type === 'arraybuffer') return new TextEncoder().encode(body).buffer;
+    if (type === 'blob') return new Blob([body], { type: contentType });
+    if (type === 'document') return xhrDocument(body, contentType);
+    return body;
+  }
+
+  function xhrDocument(body, contentType) {
+    if (!/(?:\bxml\b|\+xml\b|text\/html)/i.test(contentType)) return null;
+    const doc = new DOMParser().parseFromString(body, /text\/html/i.test(contentType) ? 'text/html' : 'application/xml');
+    return doc.getElementsByTagNameNS('http://www.mozilla.org/newlayout/xml/parsererror.xml', 'parsererror').length ? null : doc;
+  }
+
+  function textXhr(xhr) { return xhr.responseType === '' || xhr.responseType === 'text'; }
+
+  function xhrBodyValue(xhr, body, original, stage) {
+    if (stage < 3) return textXhr(xhr) ? '' : null;
+    if (stage < 4 && !textXhr(xhr)) return null;
+    return original ? original.response : typedXhrResponse(xhr.responseType, body, xhr.getResponseHeader('content-type') || 'application/json');
+  }
+
+  function installXhrBody(xhr, body, original, stage) {
+    const type = xhr.responseType;
+    const response = xhrBodyValue(xhr, body, original, stage);
+    defineXhrProperty(xhr, 'response', response);
+    if (textXhr(xhr)) defineXhrProperty(xhr, 'responseText', stage < 3 ? '' : body);
+    if (type === 'document') defineXhrProperty(xhr, 'responseXML', response);
+  }
+
+  function resetXhrResponse(xhr, readyState) {
+    for (const [key, value] of Object.entries({ readyState, status: 0, statusText: '', responseURL: '', response: null })) defineXhrProperty(xhr, key, value);
+    if (!xhr.responseType || xhr.responseType === 'document') defineXhrProperty(xhr, 'responseXML', null);
+    if (!xhr.responseType || xhr.responseType === 'text') {
+      defineXhrProperty(xhr, 'responseText', '');
+      defineXhrProperty(xhr, 'response', '');
+    }
+    installXhrHeaders(xhr, '');
+  }
+
+  function failXhr(xhr, state, type) {
+    if (state.done || _xhrStates.get(xhr) !== state) return;
+    stopXhr(state);
+    resetXhrResponse(xhr, 4);
+    xhr.dispatchEvent(new Event('readystatechange'));
+    failUpload(xhr, state, type);
+    for (const event of [type, 'loadend']) {
+      if (_xhrStates.get(xhr) !== state) return;
+      xhr.dispatchEvent(new ProgressEvent(event));
+    }
+    if (type === 'abort' && _xhrStates.get(xhr) === state) defineXhrProperty(xhr, 'readyState', 0);
+  }
+
+  function failUpload(xhr, state, type) {
+    if (!state.uploadObserved || state.uploadComplete || _xhrStates.get(xhr) !== state) return;
+    state.uploadComplete = true;
+    const target = _uploadProperty.get.call(xhr);
+    for (const event of [type, 'loadend']) {
+      if (_xhrStates.get(xhr) !== state) return;
+      target.dispatchEvent(new ProgressEvent(event));
+    }
+  }
+
+  const _xhrAbort = function abort() {
+    const state = _xhrStates.get(this);
+    if (!state) return _protoAbort.call(this);
+    if (!state.done) return failXhr(this, state, 'abort');
+    _protoAbort.call(this);
+    resetXhrResponse(this, 0);
+  };
+  _nativables.add(_xhrAbort);
+  try { _xhrPrototype.abort = _xhrAbort; } catch {}
+
+  function startXhr(xhr, request, rule) {
+    if (xhr.readyState !== 1 || (_xhrStates.has(xhr) && !_xhrStates.get(xhr).done)) throw new DOMException('XHR is not opened or is already sending', 'InvalidStateError');
+    const state = { done: false, real: null, timer: null, deadline: null, started: performance.now(), isSync: request.isSync,
+      replaceResponse: Boolean(rule.responseBody), progress: { loaded: 0, total: 0, lengthComputable: false },
+      uploadObserved: observesUpload(xhr), uploadComplete: request.body == null || ['GET', 'HEAD'].includes(request.method) };
+    _xhrStates.set(xhr, state);
+    scheduleXhrTimeout(xhr, state);
+    if (!request.isSync) xhr.dispatchEvent(new ProgressEvent('loadstart'));
+    return state;
+  }
+
+  function installXhrResponse(xhr, rule, request, prepared, result, stage = 4) {
+    const props = xhrResponseProps(rule, prepared, result.realStatus, result.realStatusText);
+    props.readyState = stage;
+    for (const [key, value] of Object.entries(props)) defineXhrProperty(xhr, key, value);
+    installXhrHeaders(xhr, result.realHeaders, result.applied && rule.responseBody ? rule : null);
+    installXhrBody(xhr, hasResponseBody(request.method, props.status) ? result.body : '', result.original, stage);
+  }
+
+  function currentXhr(xhr, state) { return !state.done && _xhrStates.get(xhr) === state; }
+
+  function progressData(event) {
+    return { loaded: event.loaded, total: event.total, lengthComputable: event.lengthComputable };
+  }
+
+  function publishMockProgress(xhr, rule, request, prepared, result, state) {
+    const body = hasResponseBody(request.method, result.realStatus ?? Number(rule.statusCode)) ? result.body : '';
+    const size = new TextEncoder().encode(body).byteLength;
+    if (!result.original) state.progress = { loaded: size, total: size, lengthComputable: true };
+    for (const stage of [2, 3]) {
+      if (!currentXhr(xhr, state)) return;
+      installXhrResponse(xhr, rule, request, prepared, result, stage);
+      xhr.dispatchEvent(new Event('readystatechange'));
+    }
+    if (currentXhr(xhr, state)) xhr.dispatchEvent(new ProgressEvent('progress', state.progress));
+  }
+
+  function mirrorXhrDownload(xhr, real, state) {
+    real.addEventListener('readystatechange', () => {
+      if (!currentXhr(xhr, state) || state.replaceResponse || ![2, 3].includes(real.readyState)) return;
+      for (const key of ['status', 'statusText', 'responseURL', 'responseText']) {
+        Object.defineProperty(xhr, key, { configurable: true, get: () => real[key] });
+      }
+      Object.defineProperty(xhr, 'readyState', { configurable: true, get: () => Math.min(real.readyState, 3) });
+      Object.defineProperty(xhr, 'response', { configurable: true, get: () => textXhr(xhr) ? real.response : null });
+      installXhrHeaders(xhr, real.getAllResponseHeaders());
+      xhr.dispatchEvent(new Event('readystatechange'));
+    });
+    real.addEventListener('progress', event => {
+      if (!currentXhr(xhr, state)) return;
+      state.progress = progressData(event);
+      if (!state.replaceResponse) xhr.dispatchEvent(new ProgressEvent('progress', state.progress));
+    });
+  }
+
+  function mirrorXhrUpload(xhr, real, state) {
+    if (!state.uploadObserved) return;
+    const target = _uploadProperty.get.call(xhr);
+    const source = _uploadProperty.get.call(real);
+    for (const type of ['loadstart', 'progress', 'load', 'loadend']) {
+      source.addEventListener(type, event => {
+        if (!currentXhr(xhr, state) || state.isSync) return;
+        if (type === 'loadstart') state.uploadComplete = false;
+        if (type === 'load') state.uploadComplete = true;
+        if (type === 'loadend' && !state.uploadComplete) return;
+        target.dispatchEvent(new ProgressEvent(type, progressData(event)));
+      });
+    }
   }
 
   function createXhrDispatcher(xhr, rule, request, prepared) {
     const title = request.method + ' \u00b7 ' + _shortUrl(prepared.url);
     const delay = rule.delay > 0 ? rule.delay : 0;
-    return function dispatchMock(body, realStatus, realStatusText, realHeaders, applied = true) {
-      const props = xhrResponseProps(rule, prepared, body, realStatus, realStatusText);
-      for (const [key, value] of Object.entries(props)) defineXhrProperty(xhr, key, value);
-      installXhrHeaders(xhr, realHeaders);
+    const state = _xhrStates.get(xhr);
+    return function dispatchMock(body, realStatus, realStatusText, realHeaders, applied = true, original = null) {
       const fire = () => {
+        if (state.done || _xhrStates.get(xhr) !== state) return;
+        const result = { body, realStatus, realStatusText, realHeaders, applied, original };
+        if (state.replaceResponse && !request.isSync) publishMockProgress(xhr, rule, request, prepared, result, state);
+        if (!currentXhr(xhr, state)) return;
+        state.done = true;
+        clearTimeout(state.deadline);
+        installXhrResponse(xhr, rule, request, prepared, result);
         if (applied && (rule.responseBody || prepared.requestChanged)) {
           completeApplied(rule, prepared.url, title, rule.responseBody ? 'response applied' : 'request modified');
         }
-        fireXhrEvents(xhr);
+        fireXhrEvents(xhr, state);
       };
       if (request.isSync) fire();
-      else setTimeout(fire, delay);
+      else state.timer = setTimeout(fire, delay);
     };
   }
 
-  function nativeXhr(xhr, request, prepared, forwardOptions = false) {
+  function nativeXhr(xhr, request, prepared) {
     const real = new _NativeXHR();
     _protoOpen.call(real, request.method, prepared.url, !request.isSync);
     Object.entries(prepared.headers).forEach(([key, value]) => _protoSetH.call(real, key, value));
-    if (forwardOptions) {
-      try {
-        for (const key of ['responseType', 'withCredentials', 'timeout']) {
-          if (xhr[key] != null) real[key] = xhr[key];
-        }
-      } catch {}
+    real.withCredentials = xhr.withCredentials;
+    if (!request.isSync) {
+      real.responseType = xhr.responseType;
+      // One deadline includes modifier work and delays, measured from the outer send.
+      real.timeout = 0;
     }
+    const state = _xhrStates.get(xhr);
+    state.real = real;
+    mirrorXhrUpload(xhr, real, state);
+    if (!request.isSync) mirrorXhrDownload(xhr, real, state);
+    for (const type of ['error', 'timeout', 'abort']) real.addEventListener(type, () => failXhr(xhr, state, type));
     return real;
   }
 
-  function deliverOriginal(real, deliver) {
-    deliver(real.responseText, real.status, real.statusText, real.getAllResponseHeaders());
+  function deliverOriginal(real, deliver, applied = false) {
+    const text = !real.responseType || real.responseType === 'text' ? real.responseText : '';
+    deliver(text, real.status, real.statusText, real.getAllResponseHeaders(), applied, real);
   }
 
-  function sendRequestOnlyXhr(xhr, rule, request, prepared, deliver) {
-    const real = nativeXhr(xhr, request, prepared, rule.responseType === 'dynamic' && !request.isSync);
+  function sendRequestOnlyXhr(xhr, request, prepared, deliver) {
+    const real = nativeXhr(xhr, request, prepared);
     if (request.isSync) {
       _protoSend.call(real, prepared.outgoingBody);
-      deliverOriginal(real, deliver);
+      deliverOriginal(real, deliver, true);
       return;
     }
-    real.onload = () => deliverOriginal(real, deliver);
-    real.onerror = () => deliver('', undefined, undefined, undefined, false);
+    real.onload = () => deliverOriginal(real, deliver, true);
     _protoSend.call(real, prepared.outgoingBody);
   }
 
   function sendStaticXhr(xhr, rule, request, prepared, deliver) {
-    if (!rule.responseBody) return sendRequestOnlyXhr(xhr, rule, request, prepared, deliver);
+    if (!rule.responseBody) return sendRequestOnlyXhr(xhr, request, prepared, deliver);
     if (request.isSync) return deliver(rule.responseBody);
     const real = nativeXhr(xhr, request, prepared);
     real.onload = () => deliver(rule.responseBody);
-    real.onerror = () => deliver(rule.responseBody);
     _protoSend.call(real, prepared.outgoingBody);
   }
 
-  function xhrResponseArgs(real, request, prepared) {
-    const text = real.responseText;
+  function xhrResponseText(real) {
+    if (real.responseType === 'json') return JSON.stringify(real.response);
+    if (real.responseType === 'arraybuffer') return new TextDecoder().decode(real.response);
+    if (real.responseType === 'blob') return real.response.text();
+    if (real.responseType === 'document') return new XMLSerializer().serializeToString(real.response);
+    return real.responseText;
+  }
+
+  function xhrResponseArgs(real, request, prepared, text) {
     return { method: request.method, url: prepared.url, response: text, responseJSON: parseJson(text),
       responseType: real.getResponseHeader('content-type') || '', requestHeaders: prepared.headers, requestData: request.body };
   }
@@ -751,45 +1158,72 @@
 
   function transformSyncXhr(real, rule, request, prepared, deliver) {
     try {
-      const result = runModifyResponse(rule, xhrResponseArgs(real, request, prepared));
+      const result = synchronousModifierResult(runModifyResponse(rule, xhrResponseArgs(real, request, prepared, real.responseText)));
       deliverTransformedXhr(real, result, deliver);
     } catch {
-      deliverTransformedXhr(real, rule.responseBody || real.responseText, deliver, false);
+      deliverOriginal(real, deliver);
     }
   }
 
   async function transformAsyncXhr(real, rule, request, prepared, deliver) {
     try {
-      const result = await runModifyResponseSafe(rule, xhrResponseArgs(real, request, prepared));
+      const text = await xhrResponseText(real);
+      const result = await runModifyResponseSafe(rule, xhrResponseArgs(real, request, prepared, text));
       deliverTransformedXhr(real, result, deliver);
     } catch {
-      deliverTransformedXhr(real, rule.responseBody || real.responseText, deliver, false);
+      deliverOriginal(real, deliver);
     }
   }
 
   function sendDynamicXhr(xhr, rule, request, prepared, deliver) {
-    if (!rule.responseBody) return sendRequestOnlyXhr(xhr, rule, request, prepared, deliver);
-    const real = nativeXhr(xhr, request, prepared, true);
+    if (!rule.responseBody) return sendRequestOnlyXhr(xhr, request, prepared, deliver);
+    const real = nativeXhr(xhr, request, prepared);
     if (request.isSync) {
       _protoSend.call(real, prepared.outgoingBody);
       transformSyncXhr(real, rule, request, prepared, deliver);
       return;
     }
     real.onload = () => transformAsyncXhr(real, rule, request, prepared, deliver);
-    real.onerror = () => deliver(rule.responseBody || '', undefined, undefined, undefined, false);
     _protoSend.call(real, prepared.outgoingBody);
   }
 
+  function sendPreparedXhr(xhr, rule, request, outgoingBody) {
+    if (_xhrStates.get(xhr)?.done) return;
+    const prepared = prepareXhrRequest(rule, request, outgoingBody);
+    const deliver = createXhrDispatcher(xhr, rule, request, prepared);
+    if (rule.responseType !== 'dynamic') return sendStaticXhr(xhr, rule, request, prepared, deliver);
+    return sendDynamicXhr(xhr, rule, request, prepared, deliver);
+  }
+
+  function sendImmediateXhr(xhr, rule, request, state) {
+    try { return sendPreparedXhr(xhr, rule, request, modifyXhrBody(rule, request)); }
+    catch (error) {
+      stopXhr(state);
+      _xhrStates.delete(xhr);
+      throw error;
+    }
+  }
+
+  function assertXhrIdle(xhr) {
+    const state = _xhrStates.get(xhr);
+    if (!state) return;
+    if (!state.done || xhr.readyState !== 1) throw new DOMException('XHR is not opened or is already sending', 'InvalidStateError');
+  }
+
   const _xhrSend = function send(body) {
+    assertXhrIdle(this);
     const request = { url: this[_URL] || '', method: this[_METHOD], headers: this[_HDRS] || {}, body, isSync: this[_ASYNC] === false };
     const rule = findApiRule(request);
     if (!rule) return _protoSend.call(this, body);
-    const prepared = prepareXhrRequest(rule, request);
-    const deliver = createXhrDispatcher(this, rule, request, prepared);
-    if (rule.responseType !== 'dynamic') return sendStaticXhr(this, rule, request, prepared, deliver);
-    return sendDynamicXhr(this, rule, request, prepared, deliver);
+    const state = startXhr(this, request, rule);
+    if (request.isSync || rule.requestBodyType !== 'dynamic' || !rule.requestBody) {
+      return sendImmediateXhr(this, rule, request, state);
+    }
+    modifyFetchBody(rule, request).then(outgoingBody => {
+      if (_xhrStates.get(this) === state && !state.done) sendPreparedXhr(this, rule, request, outgoingBody);
+    }).catch(() => failXhr(this, state, 'error'));
   };
   _nativables.add(_xhrSend);
-  try { XMLHttpRequest.prototype.send = _xhrSend; } catch {}
+  try { _xhrPrototype.send = _xhrSend; } catch {}
 
 })();

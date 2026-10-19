@@ -57,6 +57,35 @@ test('Requestly imports preserve their published version', () => {
   assert.equal(parsed[0].response.body, 'body');
 });
 
+test('legacy request bodies and rule-level headers survive migration and export', () => {
+  const modifier = 'function modifyRequest(args) { return args.requestJSON; }';
+  for (const [pair, expected] of [
+    [{ requestModifier: modifier }, { type: 'dynamic', body: modifier }],
+    [{ requestBodyType: 'dynamic', requestBody: modifier }, { type: 'dynamic', body: modifier }],
+    [{ requestBody: '{"legacy":true}' }, { type: 'static', body: '{"legacy":true}' }],
+  ]) {
+    const input = { id: 'legacy-request', requestCustomHeaders: '{"X-Request":"legacy"}', customHeaders: '{"X-Response":"legacy"}', pairs: [{ urlPattern: '/api/legacy', ...pair }] };
+    const migrated = migrateRule(input);
+    assert.deepEqual(migrated.request, { ...expected, customHeaders: input.requestCustomHeaders });
+    assert.equal(migrated.response.customHeaders, input.customHeaders);
+    assert.deepEqual(parseRuleDocument([portableRule(migrated)])[0], {
+      ...migrated, pairs: [{ ...migrated.pairs[0], id: 'pair_1' }],
+    });
+  }
+});
+
+test('Requestly subscriptions without pair IDs keep stable identities across parses', () => {
+  const input = [{ id: 'rq-stable', ruleType: 'Response', pairs: [
+    { source: { value: '/api/*', operator: 'Wildcard_Matches', filters: [{ requestMethod: ['POST'] }] }, response: { value: 'body' } },
+    { source: { value: '/other', operator: 'Contains' }, response: { value: 'body' } },
+  ] }];
+  const first = parseRuleDocument(input, { requireIds: true });
+  assert.deepEqual(parseRuleDocument(input, { requireIds: true }), first);
+  assert.deepEqual(first[0].pairs.map(pair => pair.id), ['pair_1', 'pair_2']);
+  assert.equal(first[0].pairs[0].urlOperator, 'Wildcard');
+  assert.equal(first[0].pairs[0].method, 'POST');
+});
+
 test('source URLs require HTTPS and downloads bypass cache without credentials', async () => {
   assert.equal(validateSourceUrl('https://example.test/rules.json#fragment'), 'https://example.test/rules.json');
   for (const url of ['http://example.test', 'file:///rules.json', 'https://user:password@example.test']) assert.throws(() => validateSourceUrl(url));

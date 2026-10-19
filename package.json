@@ -1,6 +1,6 @@
 {
   "name": "sfv-interceptor",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,7 @@
     "check": "node scripts/check.mjs",
     "package": "node scripts/package-release.mjs",
     "test:release": "node scripts/release-check.mjs",
+    "test:upgrade": "node scripts/upgrade-check.mjs",
     "docs:images": "node scripts/readme-assets.mjs",
     "docs:popup": "node scripts/readme-popup.mjs",
     "test:browser": "node scripts/browser-check.mjs",
@@ -17,7 +18,8 @@
     "test:activity": "node scripts/activity-check.mjs",
     "test:toasts": "node scripts/toast-check.mjs",
     "test:compact": "node scripts/compact-check.mjs",
-    "test:security": "node scripts/security-check.mjs"
+    "test:security": "node scripts/security-check.mjs",
+    "test:interception": "node scripts/interception-check.mjs"
   },
   "engines": {
     "node": ">=22"

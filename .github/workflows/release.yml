@@ -49,6 +49,12 @@ jobs:
       - name: Test the extracted ZIP
         run: npm run test:release
 
+      - name: Test interception from the extracted ZIP
+        run: |
+          SFVI_EXTENSION_ROOT="$(node -p 'JSON.parse(require("fs").readFileSync(".artifacts/release/results.json", "utf8")).session.extensionRoot')"
+          export SFVI_EXTENSION_ROOT
+          npm run test:interception
+
       - name: Keep the verified download artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -2,7 +2,7 @@
 
 # SFV Interceptor
 
-A Chrome extension for mocking REST and GraphQL responses, replacing JS and CSS files, and injecting page code.
+A Chrome extension for changing REST and GraphQL responses, replacing JavaScript and CSS files, and adding code to web pages.
 
 [Download the latest release](https://github.com/thomrnowtea/sfv-interceptor/releases/latest) · [Installation](#installation) · [MIT License](LICENSE)
 
@@ -14,34 +14,41 @@ A Chrome extension for mocking REST and GraphQL responses, replacing JS and CSS 
 
 ## Features
 
-- **API mocking:** intercept `fetch` and `XMLHttpRequest`; match REST or GraphQL requests by URL, method, and operation; return static responses or transform them with JavaScript.
-- **Page and asset rules:** inject JavaScript or HTML, and replace JavaScript or CSS files on navigation.
+- **API rules:** replace REST and GraphQL responses with your own content, or change requests and responses with JavaScript.
+- **Page and file rules:** add JavaScript or HTML to pages, and replace JavaScript or CSS files when a page opens.
 - **Rule management:** create, edit, version, search, sort, and export local rules. Import a JSON file or make a one-time import from an HTTPS URL.
-- **Subscriptions:** follow any HTTPS URL that responds with a rules array or `{ "rules": [...] }`. Remote rule content and versions follow the source; activation remains a local choice.
-- **Dashboard and popup:** edit rules and settings in the dashboard; use the popup to search and activate rules.
+- **Subscriptions:** keep rules updated from a URL. Their owner controls the content and version; you can turn each rule on or off.
+- **Dashboard and popup:** manage rules and settings in the dashboard; click the extension icon to search and turn rules on or off.
 
 ## Installation
 
-1. Download the versioned `sfv-interceptor-vX.Y.Z.zip` from [GitHub Releases](https://github.com/thomrnowtea/sfv-interceptor/releases).
-2. Extract the ZIP to a permanent folder.
-3. In Chrome, open `chrome://extensions` and turn on **Developer mode**.
+1. Open the [latest release page](https://github.com/thomrnowtea/sfv-interceptor/releases/latest). Under **Assets**, download the ZIP whose name starts with **sfv-interceptor-v**.
+2. Extract the ZIP to a folder you will keep on your computer.
+3. Type `chrome://extensions` into Chrome's address bar and turn on **Developer mode**.
 4. Select **Load unpacked** and choose the extracted folder containing `manifest.json`.
 
-Node.js is not required to use the extension. Reload the extension from `chrome://extensions` after replacing its files to update it.
+## Updating
+
+1. Download the new extension ZIP from the [latest release page](https://github.com/thomrnowtea/sfv-interceptor/releases/latest).
+2. Extract it and copy its contents into the folder you used to install the extension. Replace the existing files when asked.
+3. Open `chrome://extensions`, find **SFV Interceptor**, and click **Reload** (the circular-arrow button).
+4. Refresh the websites where you use the extension. If the dashboard is already open, refresh that tab too.
+
+Keep using the same folder and installed extension to preserve your saved rules and settings.
 
 ## Quick start
 
-Open the popup and choose **New rule**, or open the dashboard. Select a resource type, add URL patterns, configure the response, then save and enable the rule. API changes are sent to open tabs; reload a page to apply JS/CSS replacements or page injections.
+Click the **SFV Interceptor** icon in Chrome's toolbar. Choose **New rule** to create a rule, or **Open dashboard** to manage existing ones. Choose what the rule changes and which URLs it applies to, then save it and turn it on. Page and JS/CSS rules take effect when you refresh the website.
 
-Use **Import a copy** for editable local rules. Use **Sources** to subscribe to a JSON feed that should stay read-only and update on a schedule. Local rules are editable; remote rules can be activated or deactivated locally.
+Use **Import a copy** to add rules from a JSON file or URL once; you can edit those copies. Use **Sources** to keep rules linked to a URL and update them automatically. Subscribed rules can be turned on or off, but their content can only be changed by their owner.
 
-Rule documents may be a JSON array or an object with a `rules` array. Subscribed rules need stable IDs. See the [rule schema](docs/rule-schema.md) for the supported fields.
+For the rule-file format and supported options, see the [rule schema](docs/rule-schema.md).
 
 ## Permissions and data
 
-The extension requests access to all sites so it can intercept requests and modify page resources where you use it. Chrome lets you restrict site access in the extension's settings. Rules and preferences are stored with `chrome.storage.local`. Subscriptions fetch only the HTTPS URLs you configure. The project does not operate an account service or a rules server.
+The extension requests access to all websites so it can apply your rules. You can restrict which websites it can access in Chrome's extension settings. Rules and preferences are saved in your browser. Subscriptions check only the URLs you add. There is no project account or central rules server.
 
-Dynamic rule code can execute with page access. Only import and enable rules from sources you trust.
+Rules that contain JavaScript can read or change the pages they run on. Only use rules from sources you trust.
 
 ## Development
 

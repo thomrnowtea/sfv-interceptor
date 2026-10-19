@@ -11,10 +11,6 @@ export function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
-export function getCSSVar(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
 export function showToast(text, isError = false) {
   const t = document.getElementById('toast');
   t.textContent = text;

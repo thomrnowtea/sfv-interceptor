@@ -4,8 +4,6 @@ import { LOCAL_RULES_KEY, SOURCES_KEY, readList, updateList } from './storage.js
 import { validateFileRules } from './file-rules.js';
 import { toggleSourceRule } from './sources.js';
 
-export { migrateRule } from '../../shared/rule-schema.js';
-
 export function generateId() {
   return 'rule_' + crypto.randomUUID();
 }

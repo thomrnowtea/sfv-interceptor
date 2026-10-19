@@ -1,6 +1,6 @@
 import { parsers } from '../../shared/vendor/prettier/plugins/babel.mjs';
 import { parsers as htmlParsers } from '../../shared/vendor/prettier/plugins/html.mjs';
-import { RISK_BY_ID, riskSeverity } from './risk-catalog.js';
+import { RISK_BY_ID } from './risk-catalog.js';
 import { syntaxContext, walkSyntax } from './risk-syntax.js';
 
 const MEMBERS = new Set(['MemberExpression', 'OptionalMemberExpression']);
@@ -263,8 +263,6 @@ export function inspectCode(code = '') {
   return result;
 }
 
-export function analyzeCode(code) { return inspectCode(code).risks; }
-
 export function executableRuleFields(rule) {
   const fields = [];
   if (rule.request?.type === 'dynamic') fields.push({ id: 'f-req-modifier', label: 'Request JavaScript', code: rule.request.body || '' });
@@ -290,5 +288,3 @@ export function inspectRuleCode(rule) {
   }
   return [...findings.values()].sort((a, b) => b.sev - a.sev);
 }
-
-export { riskSeverity };

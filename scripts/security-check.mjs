@@ -62,7 +62,9 @@ const flagCases = {
 
 async function waitFlags(barId, expected) {
   await page.waitForFunction(({ barId, expected }) => {
-    const found = [...document.querySelectorAll('#' + barId + ' [data-risk-id]')].map(button => button.dataset.riskId).sort();
+    const bar = document.getElementById(barId);
+    if (!bar || bar.hidden || bar.textContent.includes('Analysis unavailable')) return false;
+    const found = [...bar.querySelectorAll('[data-risk-id]')].map(button => button.dataset.riskId).sort();
     return JSON.stringify(found) === JSON.stringify(expected.slice().sort());
   }, { barId, expected });
 }

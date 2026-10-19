@@ -47,22 +47,6 @@ Incomplete/invalid syntax and sources exceeding 1,000,000 UTF-16 code units show
 
 ## Verification
 
-`npm test` includes positive triggers, benign counterexamples, lexical shadowing, aliases, strings/comments/regexes, template expressions, cookie read/write separation, exact emoji/CRLF offsets, malformed input, and executable-field selection.
+Run `npm test` for trigger detection and source-offset checks, and `npm run test:security` for editor highlights, occurrence navigation, save review and read-only behavior. The browser suite includes themes, narrow layouts, keyboard navigation and scoped accessibility scans. Each catalog entry has an expected trigger and a nearby negative example.
 
-`npm run test:security` opens an isolated Chromium profile with synthetic rules. It checks rendered source highlights, occurrence navigation, presentation formatting and undo/redo, request-only/static-JS save review, read-only inspection, virtual scrolling, and removal of stale markers. Default/light/custom themes run at desktop, 360px, and 320px. It records scoped axe findings, directly measured contrast for badges and code tints, keyboard dialog behavior, target sizes, screenshots, and console/network errors under `.artifacts/security/`.
-
-The browser suite also checks every catalog entry individually against independently specified source spans and a nearby negative example. It verifies every occurrence, the accessible name, severity paint, and correct negative result in the rendered editor. These 16 reproducible records are written to `flag-matrix.json`. The example operations are inspected as source, never executed. Passing these fixtures does not establish complete coverage of arbitrary JavaScript.
-
-The worst-case fixture combines all 16 flags at desktop and 320px in all three themes. It exercises the reference from its first to last item and the save-review dialog. Reference geometry assertions require 20px desktop / 16px narrow insets, a reachable 44px close control, a single inner scroll container, singular/plural counts, and no horizontal overflow. Save review starts with its heading focused, keeps the heading and actions visible, and scrolls only the findings. The reference also runs at real browser zoom of 150% and 200%; native viewport captures avoid Playwright's unzoomed element-crop coordinates.
-
-The full-page axe output is retained even when a finding is outside the changed feature. In the green custom-theme fixture, existing navigation metadata, subtitles and code hints have insufficient contrast; those findings remain recorded separately from the flag/editor scope. Automated scans do not replace screen-reader testing.
-
-The implementation uses the documented [Prettier parser interface](https://prettier.io/docs/plugins#parsers) and the [CSS Custom Highlight API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Custom_Highlight_API).
-
-Implementation complexity was measured with `scripts/complexity.mjs` before/after separating the catalog, syntax analysis, UI, and source painting:
-
-| Function | Before | After |
-| --- | --- | --- |
-| `updateRiskBar` | 17 | 7 |
-
-No changed source function exceeds 9 decision branches under that script's metric. Trigger behavior and source preservation are verified by the Node and browser checks above.
+Automated scans do not replace manual screen-reader or custom-theme contrast checks. The implementation uses the [Prettier parser interface](https://prettier.io/docs/plugins#parsers) and the [CSS Custom Highlight API](https://developer.mozilla.org/en-US/docs/Web/API/CSS_Custom_Highlight_API). See [quality checks](qa.md).

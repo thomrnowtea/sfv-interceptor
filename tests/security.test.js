@@ -1,10 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectCode, analyzeCode, inspectRuleCode, executableRuleFields, riskSeverity } from '../dashboard/core/risk-analysis.js';
-import { RISK_FLAGS } from '../dashboard/core/risk-catalog.js';
+import { inspectCode, inspectRuleCode, executableRuleFields } from '../dashboard/core/risk-analysis.js';
+import { RISK_FLAGS, riskSeverity } from '../dashboard/core/risk-catalog.js';
 
-const ids = code => analyzeCode(code).map(risk => risk.id).sort();
-const ranges = (code, id) => analyzeCode(code).find(risk => risk.id === id)?.ranges ?? [];
+function analyzedRisks(code) {
+  const result = inspectCode(code);
+  assert.equal(result.error, null, 'Fixture must parse before checking flags: ' + code);
+  return result.risks;
+}
+
+const ids = code => analyzedRisks(code).map(risk => risk.id).sort();
+const ranges = (code, id) => analyzedRisks(code).find(risk => risk.id === id)?.ranges ?? [];
 
 test('every flag documents a real trigger with a nonempty exact source range', () => {
   for (const flag of RISK_FLAGS) {
@@ -12,6 +18,7 @@ test('every flag documents a real trigger with a nonempty exact source range', (
     assert.equal(analysis.error, null, flag.id);
     const found = analysis.risks.find(risk => risk.id === flag.id);
     assert.ok(found, flag.id);
+    assert.ok(found.ranges.length > 0, flag.id);
     assert.ok(found.ranges.every(range => range.from >= 0 && range.to > range.from && range.to <= flag.example.length), flag.id);
     assert.ok(flag.trigger && flag.why && flag.example, flag.id);
   }
@@ -177,7 +184,7 @@ test('syntax errors and oversized sources are unavailable rather than clean resu
   assert.ok(inspectCode('const data = "unterminated').error);
   assert.ok(inspectCode(' '.repeat(1_000_001) + 'fetch()').error);
   assert.equal(inspectCode('const value = 1;').error, null);
-  assert.equal(riskSeverity(analyzeCode('fetch("/api")')), 1);
+  assert.equal(riskSeverity(analyzedRisks('fetch("/api")')), 1);
 });
 
 test('save review covers request modifiers and static JavaScript without interpreting API data as code', () => {

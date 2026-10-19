@@ -1,14 +1,20 @@
 ### Changes
 
-- Reworked 16 code review flags with syntax-aware detection and fewer false positives.
-- Added severity-colored source highlights and navigation to each flagged occurrence.
-- Fixed flag dialogs, contrast and accidental dashboard scrolling.
-- Updated the footer link to open the public repository.
+- Fixed a compatibility issue that could stop websites from loading.
+- Improved JavaScript rules on websites with stricter security settings. Failed changes now keep the original data.
+- Fixed URL matching when letter case matters, and filtering by GraphQL operation name.
+- Fixed response formats, progress, cancelled requests, timeouts and delays in API rules.
 
-[Full changelog](https://github.com/thomrnowtea/sfv-interceptor/compare/v1.3.0...v1.3.1)
+[Full changelog](https://github.com/thomrnowtea/sfv-interceptor/compare/v1.3.1...v1.3.2)
 
-Download **sfv-interceptor-v1.3.1.zip** below. See the [installation instructions](https://github.com/thomrnowtea/sfv-interceptor#installation).
+Download **sfv-interceptor-v1.3.2.zip** below. See the [installation instructions](https://github.com/thomrnowtea/sfv-interceptor#installation).
 
-To update, replace the files in the existing extension folder and click **Reload** in `chrome://extensions`. Reopen the dashboard and reload host pages. Keeping the same folder preserves stored rules and settings.
+### Updating
 
-The accompanying `.sha256` file contains the ZIP checksum.
+1. Extract the new ZIP and copy its contents into the folder you used to install the extension. Replace the existing files when asked.
+2. Open `chrome://extensions`, find **SFV Interceptor**, and click **Reload** (the circular-arrow button).
+3. Refresh the websites where you use the extension. If the dashboard is already open, refresh that tab too.
+
+Keep using the same folder and installed extension to preserve your saved rules and settings.
+
+The optional `.sha256` file lets you verify the download. You do not need it to install the extension.

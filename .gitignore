@@ -1,8 +1,38 @@
-.claude
-.codex
+# Personal agent and editor configuration
+.claude/
+.codex/
+.agents/
+.orca/
+.vscode/
+.idea/
 AGENTS.md
+
+# Dependencies and generated verification/release files
 node_modules/
 test-results/
 playwright-report/
 .artifacts/
+/docs/test-audit.md
 dist/
+coverage/
+*.log
+
+# Local rules, exports and browser profiles (keep shared fixtures under tests/)
+/rules/
+/local-rules/
+/rules.local*.json
+/test-rules*.json
+/sfv-interceptor-rules*.json
+/browser-profile*/
+/chrome-profile*/
+
+# Local credentials and extension signing keys
+.env
+.env.*
+!.env.example
+*.pem
+*.crx
+
+# OS metadata
+.DS_Store
+Thumbs.db

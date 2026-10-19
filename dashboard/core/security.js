@@ -4,7 +4,7 @@ import { RISK_FLAGS, riskSeverity } from './risk-catalog.js';
 import { inspectCode, executableRuleFields } from './risk-analysis.js';
 import { setEditorRisks, focusRiskRange, supportsRiskHighlights } from '../editor/risk-highlights.js';
 
-export { analyzeCode, inspectCode, inspectRuleCode, riskSeverity } from './risk-analysis.js';
+export { inspectRuleCode } from './risk-analysis.js';
 
 const LEVELS = {
   0: { key: 'none', label: 'No flags recognized' },

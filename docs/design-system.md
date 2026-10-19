@@ -1,6 +1,6 @@
 ﻿# Interface design
 
-SFV Interceptor is a desktop web utility with responsive layouts. Its visual direction uses quiet surfaces, a clear primary action, segmented filters, predictable dialogs, and short feedback transitions. Apple and Emil Kowalski references inform those interaction choices. The extension retains its own original dark palette and uses the user's requested Manrope typography.
+SFV Interceptor is a desktop web utility with responsive layouts. Its interface uses quiet surfaces, a clear primary action, segmented filters, predictable dialogs and short feedback transitions. Dashboard, popup and notifications share theme tokens and bundled Manrope typography.
 
 ## Sources of truth
 
@@ -34,7 +34,7 @@ Local sidebar rows use two text lines: name, then URL and version. Remote rows a
 
 ## Palette
 
-The default matches the original repository's dark palette. Contrast-specific action and link colors are separate from the brand accent so small text stays readable.
+Action and link colors are separate from the brand accent so small text stays readable.
 
 | Token | Default dark | Light |
 | --- | --- | --- |
@@ -65,13 +65,13 @@ Import a copy creates editable local rules once. Sources manages JSON subscripti
 
 Dialogs have accessible names, contained Tab navigation, Escape, and focus restoration. Security warnings and the risk reference also use native dialogs with bounded content. The reference has 20px desktop / 16px narrow insets around its header and content; only its catalog scrolls while its title and close control remain reachable. CodeMirror has an accessible name and remains keyboard reachable in read-only mode. Appearance choices expose their selected state through `aria-pressed`.
 
-Buttons have brief press feedback; list navigation does not animate. In-page toasts fade in over 180ms and out over 120ms. Hosts do not translate: moving them inside the scroll container created a transient scrollbar even for a single fitting card. The wrapper retains vertical scrolling for tall stacks in short viewports. The default display duration is 5 seconds of unpaused time. The entire card is a named native button: clicking anywhere, Enter, Space, or scoped Escape dismisses it; there is no separate cross. Keyboard dismissal is immediate. A 3px progress bar shows remaining time using the same resource-type token as the marker and a linear transform. Hover does not pause it. Keyboard focus pauses and resumes the progress and expiry budget together. Reduced motion removes transitions and makes countdown updates step once per second. The stack holds at most three cards and retains a focused card. Arrival does not move page focus; a stable polite live region coalesces announcements.
+Buttons have brief press feedback; list navigation does not animate. In-page toasts fade in over 180ms and out over 120ms without translation, keeping scroll bounds stable. The wrapper retains vertical scrolling for tall stacks in short viewports. The default display duration is 5 seconds of unpaused time. The entire card is a named native button: clicking anywhere, Enter, Space, or scoped Escape dismisses it; there is no separate cross. Keyboard dismissal is immediate. A 3px progress bar shows remaining time using the same resource-type token as the marker and a linear transform. Hover does not pause it. Keyboard focus pauses and resumes the progress and expiry budget together. Reduced motion removes transitions and makes countdown updates step once per second. The stack holds at most three cards and retains a focused card. Arrival does not move page focus; a stable polite live region coalesces announcements.
 
 Toast styles live in closed shadow roots with constructable stylesheets. Isolated content loads the packaged font once and passes binary bytes to a fixed `FontFace` in MAIN. Presentation initializes independently of API-rule availability, covering file-only notifications. Theme variables stay on the notification wrapper rather than the host page. REST, GraphQL, HTML, JS, and CSS markers and bars follow their shared theme type tokens; background, text, and border follow the selected preset/custom theme. Page/file execution returns its result immediately; the worker records each success, ensures the hook, and delivers a themed notice in the same document. Notifications use bounded token deduplication and recheck the captured execution snapshot after presentation readiness. A slow modifier does not hold other successes' notices. Transient toast initialization failures do not permanently replace the renderer with a no-op. Strict page CSP and actual rendered Manrope glyphs are covered by the browser probes.
 
 ## Verification
 
-Run `npm run test:browser` for functional extension flows, `npm run test:ui` for regression fixtures, and `npm run test:popup` for native toolbar sizing. `npm run test:formatter` verifies the packaged Prettier integration. `npm run test:activity` verifies the green current-page rule state and actual success/failure boundaries. `npm run test:toasts` forces delayed hook readiness, stale configuration/navigation, duplicate deliveries, modifier failure and initialization retry. See [QA results](qa.md) for measurements, captures, review items, and coverage limits. Apple hardware and screen-reader usability require separate verification.
+See [quality checks](qa.md) for the functional, layout, native-popup, formatter, activity and notification suites. Physical touch devices and screen-reader usability require separate verification.
 
 CodeMirror highlighting uses CSS-variable foregrounds. `dashboard/editor/highlight.js` clones the vendored default style's `specs` and uses its constructor's `define` method. Constructor access depends on the checked-in bundle; the adapter validates that shape and never mutates the default instance. Its literal-color mapping describes the vendor palette. See the [CodeMirror highlighting reference](https://codemirror.net/docs/ref/#language.HighlightStyle).
 

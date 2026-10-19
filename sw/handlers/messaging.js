@@ -29,6 +29,7 @@ export async function getApiRules(snapshot = null) {
         configGeneration,
         name:                 rule.name,
         regex:                regexFilter,
+        caseSensitive:        pair.caseSensitive === true,
         method:               pair.method,
         responseType:         rule.response.type,
         responseBody:         rule.response.body,

@@ -1,7 +1,6 @@
 import { state, sortedRules } from '../core/state.js';
 import { esc, msg, showToast } from '../core/utils.js';
 import { isRemoteRule } from '../../shared/rule-schema.js';
-import { icon } from '../../shared/icons.js';
 import { displayPatterns, displayVersion } from '../../shared/rule-display.js';
 
 const TYPES = { rest: ['REST', 't-rest'], graphql: ['GQL', 't-graphql'], js: ['JS', 't-js'], css: ['CSS', 't-css'], html: ['HTML', 't-html'] };

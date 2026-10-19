@@ -2,7 +2,6 @@ import { themedHighlightStyle } from './highlight.js';
 import { formatSelection } from './formatter.js';
 import { showToast } from '../core/utils.js';
 import { registerRiskEditor, refreshRiskHighlights, clearRiskHighlights } from './risk-highlights.js';
-export { formatJS } from './formatter.js';
 
 let cmEditors = {};
 const formatting = new WeakSet();

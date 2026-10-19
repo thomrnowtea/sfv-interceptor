@@ -1,61 +1,41 @@
-﻿# Development
+# Development
 
-Project guidance lives in this directory and works with any assistant or editor. Local agent instructions and personal configuration remain untracked. No personal knowledge vault or editor setup is required to build or test the extension.
+## Run the extension
 
-## Running
+Load the repository root with **Load unpacked** in `chrome://extensions`. No compilation or server is required. Node dependencies are only needed for development and tests; the editor, formatters, minifier and font are bundled locally.
 
-Load the repository root as an unpacked extension in Chrome's extensions page. There is no compilation or server step. Reload the extension after service worker or manifest changes, close and reopen its popup, and reload an existing dashboard tab. Version 1.3 adds the `alarms` permission for background subscriptions. The packaged theme module and Manrope font are explicitly listed as web-accessible resources for content-script presentation; this adds no host permission.
+After changing extension code, reload the extension and reopen its popup and dashboard. Reload host pages after changing `page-hook.js` or `content.js` so their installed hooks are replaced.
 
-Also reload ordinary host pages after changing `page-hook.js` or `content.js`: an already installed MAIN hook is not replaced by reloading the extension alone.
-
-## Verification
+## Install development tools
 
 Use Node 22 or later:
 
 ```sh
 npm ci
+npx playwright install chromium
 npm test
 npm run check
-npx playwright install chromium
 npm run test:browser
-npm run test:ui
-npm run test:popup
-npm run test:formatter
-npm run test:activity
-npm run test:toasts
-npm run test:compact
 ```
 
-Loading the extension does not require `node_modules`. CodeMirror, Prettier, Terser, and the font are bundled locally. Development dependencies provide their update sources, Chromium automation, axe accessibility checks, and AST inspection. `node scripts/vendor-terser.mjs` regenerates the checked-in minifier for maintenance; it is not a runtime build step. Preserve the adjacent licenses when updating.
+`npm test` uses isolated Chrome API fakes in `tests/helpers/chrome.js`. Browser suites load the extension in isolated Chromium profiles with synthetic fixtures. They never attach to a personal browser. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use another compatible Chromium binary. The native popup suite requires a desktop display.
 
-`npm test` runs isolated Node tests covering migration, versions, display fallbacks, theme resolution, read-only enforcement, source isolation, snapshot replacement and recovery, concurrent updates, alarms, exports, literal/wildcard file matching, DNR application, and local asset precedence. The Chrome API fake is in `tests/helpers/chrome.js`.
+See [quality checks](qa.md) for the available suites. `npm run check` validates JavaScript syntax and basic manifest requirements; packaging and the extracted-archive browser check validate resources and loading.
 
-`npm run check` checks JavaScript syntax and the manifest. `node scripts/complexity.mjs <files...>` reports decision counts for functions at or above six; count is one plus branches, loops, catches, ternaries, and `&&`/`||`. Nested functions are counted separately.
+`SFVI_EXTENSION_ROOT` selects the extension directory for `test:interception`, including an extracted release ZIP. `SFVI_TEST_ARTIFACTS` selects its output directory and is also supported by the activity, toast and upgrade runners. Generated screenshots, diagnostics and profiles stay under ignored `.artifacts/` by default.
 
-`npm run test:browser` loads the real extension into a new isolated headless Chromium profile. It drives editing, remote subscriptions, failures, imports, popup, themes, keyboard/focus behavior, and narrow layouts. Feed responses are deterministic fixtures; no credentials or external account are required.
+## Package and update
 
-`npm run test:ui` adds legacy seven-rule fixtures and a remote source with long metadata. It checks bounded popup geometry including an error state, expanded narrow navigation, scoped selection, security and risk dialogs, actual Chrome tab zoom at 150% and 200%, and in-page toast typography, stack bounds, whole-card dismissal, keyboard behavior, the 5-second default, hover expiry, keyboard-focus pause, synchronized progress, five resource colors across seven preset/custom variants, contrast, and reduced motion under strict page CSP. This runner opens the popup document in constrained tabs; native toolbar hosting is covered separately.
+```sh
+npm run package
+npm run test:release
+npm run test:upgrade -- path/to/previous-release.zip
+```
 
-`npm run test:popup` requires a desktop display. It launches headful isolated Chromium with no viewport override, calls `chrome.action.openPopup`, and attaches to that native panel through CDP. It verifies `chrome.extension.getViews({type:'popup'})`, initial sizing, reopening, empty/many-rule/theme/error states, an actually applied rule, footer reachability, and the dashboard action. It catches sizing cycles that a fixed-size tab fixture cannot detect.
+Packaging uses an explicit runtime-file allowlist and writes the ZIP and checksum under ignored `dist/`. The release check loads the extracted archive. The upgrade check launches the previous release, populates synthetic rules and settings, then replaces its files in the same directory and restarts the same profile. See [releases](releases.md) for versioning and publication.
 
-`npm run test:formatter` loads the real dashboard and local Prettier plugins under MV3 CSP. It checks toolbar and shortcut language selection, separate backing/presentation values, cursor/selection mapping, clean formatting, CodeMirror undo/redo, async races, read-only protection, and fallback presentation without content notifications. See [editor formatting](editor-formatting.md).
+## Maintain bundled assets
 
-`npm run test:compact` verifies pretty pasted saves, file/URL imports, invalid JavaScript preservation, selected/full downloaded JSON, unchanged remote storage, universal suffix-free GET/ETag/304 sources and the resource subtype selector in both themes. It measures six type/theme text contrasts and scans desktop plus 375px layouts with axe. Synthetic feeds and rules require no private links or credentials.
+`node scripts/vendor-terser.mjs` regenerates the checked-in minifier. Keep its license notices with the bundle. The Manrope WOFF2 comes from `@fontsource-variable/manrope`; update the font and SIL OFL license together.
 
-Remote activation regressions in `tests/remote-activation.test.js` cover persistent local choices, publisher defaults, exact/special IDs, concurrent sync/toggle, effective file-pattern validation, timeout/unsubscribe and publication errors. The functional browser runner exercises keyboard switches across dashboard/popup while content stays locked. The compact runner checks 304/reopen persistence, narrow drawer access and authoritative UI state after failed publication. The native popup runner also switches a remote rule off/on and verifies six actual toolbar states.
-
-All runners own isolated profiles and do not attach to a personal browser. On Windows, they can reuse installed Playwright Chromium. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to choose another compatible Chromium binary. `.artifacts/` contains screenshots, axe JSON, measurements, and isolated profiles; it is excluded from Git. See [QA results](qa.md) for coverage limits.
-
-`npm run test:activity` uses a local HTTP fixture server and the actual extension. It verifies fetch/XHR success/failure, delayed delivery, type-colored notices, active-tab popup state, reload/iframe navigation, unchanged/changed configuration, pending stale results, and page/JS/CSS injection. It includes light/dark axe scans. Back/forward evidence records whether Chrome actually restored from BFCache. See [rule activity](rule-activity.md).
-
-## Release packaging
-
-`npm run package` generates the versioned extension ZIP and SHA-256 file under ignored `dist/`. `npm run test:release` verifies and loads the extracted archive in an isolated browser. Only explicitly allowlisted runtime files and license notices ship; agent instructions, developer tooling, tests, documentation, private/test rules and profiles remain outside the ZIP. See [releases](releases.md) for the file policy, version checks, installation/update instructions and automatic GitHub tag workflow.
-
-## Bundled font and optional design tooling
-
-`npm run docs:images` regenerates the README cover and dashboard capture under `docs/assets/`, using the original logo, bundled Manrope, default theme tokens, and synthetic rules. `npm run docs:popup` opens a visible, isolated Chromium window on `https://example.com` with a local example page, synthetic rules, and the native extension popup open. Capture the whole browser window with an OS screenshot tool and save it as `docs/assets/readme-popup.png`. Neither command uses a personal browser profile or rule data. Supporting measurements stay in `.artifacts/readme/`; documentation images and generators remain outside the extension ZIP.
-
-The Latin Manrope asset comes from `@fontsource-variable/manrope`, with its SIL OFL license retained. Update the checked-in WOFF2 and license together when updating the package. The extension loads its assets locally and has no runtime dependency on Fontsource or a font CDN.
-
-Optional design references include [Emil Kowalski's skills repository](https://github.com/emilkowalski/skills). No design skill, assistant plugin, or personal tool installation is required to build, load, or test the extension.
+`npm run docs:images` regenerates the README cover and dashboard image. `npm run docs:popup` opens isolated Chromium with synthetic rules and a sample page for the native-popup screenshot. Commit the documentation images under `docs/assets/`; keep browser profiles and intermediate captures out of Git.

@@ -41,6 +41,14 @@ test('REST interception prioritizes local rules ahead of remote rules with match
   assert.equal(rules[1].responseBody, 'remote');
 });
 
+test('API descriptors retain each URL pattern case-sensitivity setting', async () => {
+  fixture.data.sfvi_rules = [rule({ pairs: [
+    { id: 'sensitive', urlPattern: '/api/Mixed', caseSensitive: true },
+    { id: 'insensitive', urlPattern: '/api/Mixed', caseSensitive: false },
+  ] })];
+  assert.deepEqual((await getApiRules()).map(item => item.caseSensitive), [true, false]);
+});
+
 test('file-patching DNR IDs are positive and stable for local and namespaced remote IDs', async () => {
   fixture.data.sfvi_rules = Array.from({ length: 100 }, (_, index) => rule({ id: `file-${index}`, resourceType: 'html', resourceSubtype: 'js' }));
   fixture.data.sfvi_sources = [{ id: 'one', name: 'Team', url: 'https://team.test/rules.json', rules: [rule({ resourceType: 'html', resourceSubtype: 'css' })] }];

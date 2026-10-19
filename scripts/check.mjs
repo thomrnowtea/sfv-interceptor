@@ -23,4 +23,4 @@ for (const file of files) {
 const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
 if (!manifest.permissions.includes('alarms')) throw new Error('Remote synchronization requires the alarms permission');
 if (failed) process.exitCode = 1;
-else console.log(`Syntax checked ${files.length} JavaScript files; manifest is valid.`);
+else console.log(`Syntax checked ${files.length} JavaScript files; manifest JSON parsed and alarms permission present.`);

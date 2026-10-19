@@ -10,26 +10,6 @@ export function initNav({ onSelect }) {
   _onSelect = onSelect;
 }
 
-export function navRuleClass(t, sub) {
-  if (t === 'html') return { js: 'nr-js', css: 'nr-css', html: 'nr-html' }[sub] || 'nr-html';
-  return { rest: 'nr-rest', graphql: 'nr-graphql' }[t] || 'nr-rest';
-}
-
-export function hrClass(t, sub) {
-  if (t === 'html') return { js: 'hr-js', css: 'hr-css', html: 'hr-html' }[sub] || 'hr-html';
-  return { rest: 'hr-rest', graphql: 'hr-graphql' }[t] || 'hr-rest';
-}
-
-export function typeClass(t, sub) {
-  if (t === 'html') return { js: 't-js', css: 't-css', html: 't-htm-sub' }[sub] || 't-html';
-  return { rest: 't-rest', graphql: 't-graphql', html: 't-html' }[t] || 't-rest';
-}
-
-export function typeLabel(t, sub) {
-  if (t === 'html') return { js: 'JS', css: 'CSS', html: 'HTML' }[sub] || 'RES';
-  return { rest: 'REST', graphql: 'GQL' }[t] || 'REST';
-}
-
 export function updateSelectButtons() {
   const count     = state.selectedIds.size;
   const exportBtn = document.getElementById('export-selected');

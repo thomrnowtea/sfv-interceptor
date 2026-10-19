@@ -5,7 +5,7 @@
 'use strict';
 
 (async () => {
-  const origin = location.origin || '*';
+  const origin = location.origin && location.origin !== 'null' ? location.origin : '*';
   const themes = import(chrome.runtime.getURL('shared/themes.js'));
   const font = fetch(chrome.runtime.getURL('shared/fonts/manrope-latin-wght-normal.woff2')).then(response => {
     if (!response.ok) throw new Error('Font unavailable');
