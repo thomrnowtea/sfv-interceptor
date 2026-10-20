@@ -2,46 +2,38 @@
 
 Last updated: October 20, 2026
 
-SFV Interceptor is maintained by [thomrnowtea](https://github.com/thomrnowtea). It lets you apply rules to web requests, responses, JavaScript, CSS, and pages. This policy covers the extension distributed from the [project repository](https://github.com/thomrnowtea/sfv-interceptor).
+SFV Interceptor is a developer tool for testing websites with configurable request, response, and page-resource rules. It is maintained by [thomrnowtea](https://github.com/thomrnowtea) and distributed from the [project repository](https://github.com/thomrnowtea/sfv-interceptor).
 
-## Data used by the extension
+## Local processing and storage
 
-The extension processes website URLs, request methods, headers, request and response bodies, and page or resource content as needed to match and apply your enabled rules. Depending on the website and rule, this content can include personal information, authentication tokens, or other sensitive data. The extension does not build a browsing-history database.
+To match and apply enabled rules, the extension processes website and request URLs, request methods and headers, request and response bodies, and page, JavaScript, or CSS content in your browser. It does not maintain a browsing-history database or send this content to the maintainer.
 
-Enabled API rule configuration is delivered to pages where the extension has access so requests can be matched and modified locally. The page execution environment is shared with the website: website scripts can observe or interfere with that configuration, rule code, and execution indicators. These indicators are not a security attestation.
+Your rules, versions, URL patterns, subscription URLs and snapshots, update metadata, activation choices, and interface preferences are stored in your browser profile. The extension has no account system, analytics, advertising, or developer-operated data collection server. Interface assets, fonts, and editor libraries are bundled with the extension.
 
-Rules, their code and versions, URL patterns, source URLs, downloaded source snapshots, activation choices, and interface preferences are saved in your browser profile. Source URLs may contain access tokens in their query strings. Source update timestamps, validators, and error messages are also saved locally. The extension does not provide its own encryption for this stored data.
+Temporary session records associate applied rule IDs with the current tab and document so the toolbar icon and popup can show which rules ran. They reset on navigation or a new execution cycle and are removed when the tab closes or the browser session restarts. Temporary resource caches are kept in memory and cleared when the service worker restarts. Diagnostic messages remain in the local browser console.
 
-Temporary page activity records identify which rules ran in each tab. These records use browser session storage and are reset for a new page or execution cycle, removed when a tab closes, and cleared when the extension or browser session is restarted. Original resource content and discovered asset URLs can be cached in memory to apply file replacements. These caches are bounded and disappear when the service worker restarts. Diagnostic messages remain in the local browser console; they are not automatically reported to the maintainer.
+## Connections and subscriptions
 
-## Network connections
+Importing from a URL requests the rule document from the HTTPS address you enter. Subscriptions periodically check the address you choose, including while the dashboard is closed. These checks omit cookies and referrer information and can use an ETag to avoid downloading an unchanged document. They do not upload your local rules or browsing activity. As with other web requests, the source server and any redirect destination receive the requested URL and normal connection metadata, including your IP address.
 
-SFV Interceptor has no project account system, analytics service, advertising service, or central server receiving your rules or browsing activity. Fonts, editor libraries, and extension interface assets are bundled locally.
+Page and file rules can retrieve a page or its original resources to apply your configured transformations. Website requests follow the browser's applicable credential and origin rules; a same-origin resource request made from the page can include that site's cookies. Enabled rules determine the request changes and destinations used.
 
-Importing rules from a URL makes a request to that URL. Subscribing to a URL makes periodic requests to it, including while the dashboard is closed. Configured source URLs must use HTTPS. Source requests omit cookies and referrer information; later requests may send the server's previous ETag to check for changes. The source server and any redirect destination can receive your IP address, the requested URL including its query string, and normal request metadata. The extension does not upload your local rules or unrelated browsing activity with these checks. Source operators control their own logs and privacy practices.
+Rules can include JavaScript transformations and page code, executed in the website context or the extension's sandbox without privileged extension APIs. Their behavior and any requests they make follow the rule content you enable. Subscription updates replace the source's rule content, including JavaScript when present; you choose the source and can turn each rule on or off.
 
-Page and file rules may fetch the current page or original assets to locate or transform matching files. These requests go to the relevant website or resource server. A same-origin request made from the page to retrieve an original asset may include that site's cookies. API rules can change the destination, headers, or body of a website's requests as configured by you.
-
-Opening the repository, support, or privacy links connects to GitHub. GitHub handles those visits under its own [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
-
-## JavaScript rules and subscriptions
-
-JavaScript in an enabled rule can read or change the page, access page data available to JavaScript, and make network requests. Those requests may send data to destinations chosen by the rule author. Page access remains subject to the browser's applicable restrictions. Such rules do not receive direct access to privileged extension APIs.
-
-This applies to rules you write, import, or subscribe to. Subscription updates can change code in enabled rules without another manual import. Read-only subscription content means you cannot edit the publisher's copy; you can still turn each rule off or unsubscribe. Only use rule sources you trust.
+Source providers handle their own server logs. Opening project, support, or privacy links connects to GitHub under its [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
 
 ## Use and sharing
 
-The extension uses data to provide the rule-editing, synchronization, matching, modification, and execution-status features you choose. The maintainer does not receive, sell, or use your rules or browsing data for advertising, tracking, credit decisions, or unrelated purposes. Data can leave your device through the website requests and rule-controlled connections described above, or when you choose to export and share rules.
+Data is used to provide rule editing, matching, request and response changes, subscription updates, and execution indicators. The maintainer does not receive or sell your rules or browsing data, or use them for advertising, tracking, credit decisions, or unrelated purposes. Network connections are described above. Exporting produces a local JSON file that you can choose to share.
 
-SFV Interceptor's use of information received from Chrome APIs follows the Chrome Web Store User Data Policy, including the Limited Use requirements. Access and transfers are limited to the extension's disclosed functionality. The maintainer has no remote access to your stored extension data.
+SFV Interceptor's use of information received from Chrome APIs follows the Chrome Web Store User Data Policy, including its Limited Use requirements. Data use and transfers are limited to the extension's disclosed functionality.
 
 ## Your choices and retention
 
-You can turn rules off, delete local rules, and remove subscriptions in the dashboard. Removing a subscription deletes its stored source configuration, snapshot, and activation preferences. It does not delete separate local copies or exported files. Turning a rule off cannot undo code that has already run; refresh the affected page to start a new page session.
+You can turn rules off, delete local rules, remove subscriptions, and export rules from the dashboard. Removing a subscription deletes its configuration, snapshot, and activation preferences. Separate local copies and exported files remain under your control. Refresh a website after disabling page or file rules to start a new page session.
 
-Saved extension data remains in your browser until you delete it or remove the extension. You can restrict website access through Chrome's extension settings or disable the extension. Exported JSON files remain wherever you save them and can contain sensitive rule content; deleting a rule in the extension does not delete its exports. Browser or device backups are controlled separately by you and your browser or operating-system provider.
+Saved extension data stays in your browser until you delete it or uninstall the extension. You can restrict website access or disable the extension through Chrome's extension settings. Exported files and browser or device backups are managed separately by you.
 
 ## Contact and changes
 
-For privacy questions, contact the maintainer through the [project's issue tracker](https://github.com/thomrnowtea/sfv-interceptor/issues). Public issues do not require you to share private rules or credentials. Changes to this policy will be published here with an updated date. Material changes to data handling will also be disclosed with the relevant extension update.
+For privacy questions, contact the maintainer through the [project's issue tracker](https://github.com/thomrnowtea/sfv-interceptor/issues). Policy changes will be published here with an updated date. Material changes to data handling will also be described in the relevant extension update.
