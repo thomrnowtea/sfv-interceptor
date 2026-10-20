@@ -1,6 +1,9 @@
 import { icon } from '../shared/icons.js';
 import { renderPopupRuleList } from './rule-list.js';
 import { resolveTheme } from '../shared/themes.js';
+import { showAppVersion } from '../shared/app-version.js';
+
+showAppVersion();
 
 // ── Theme sync ────────────────────────────────────────────────────────────────
 function _applyThemeVars(vars) {

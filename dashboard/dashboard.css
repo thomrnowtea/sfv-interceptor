@@ -13,6 +13,7 @@ button { display: inline-flex; align-items: center; justify-content: center; gap
 .logo-text { font-size: 15px; font-weight: 600; letter-spacing: -.35px; }
 .logo-text span { display: block; color: var(--text3); font-size: 11px; font-weight: 400; letter-spacing: 0; line-height: 1.35; }
 .btn-theme { margin-left: auto; width: 32px; padding: 0; color: var(--text3); }
+.logo-text { min-width: 0; }
 .btn-new-sidebar { width: 100%; min-height: 38px; background: var(--surface); border-color: var(--border2); color: var(--text); }
 .sidebar-body { min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .sidebar-search { padding: 0 14px 10px; }
@@ -184,6 +185,7 @@ dialog::backdrop { background: rgba(0,0,0,.3); backdrop-filter: blur(3px); }
 .import-modal-close { width: 32px; padding: 0; color: var(--text3); }
 .import-modal-body { padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 18px; }
 .dialog-description { font-size: 14px; line-height: 1.65; color: var(--text3); }
+.import-modal-body .hint a { color: var(--accent-link); text-underline-offset: 2px; }
 .import-option-btn { min-height: 64px; justify-content: flex-start; padding: 12px; border: 1px solid var(--border2); background: var(--surface2); text-align: left; border-radius: 10px; white-space: normal; }
 .import-option-icon { margin-right: 4px; color: var(--text3); }
 .import-option-title { font-weight: 600; font-size: 13px; color: var(--text); }

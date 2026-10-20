@@ -1,13 +1,14 @@
 ### Changes
 
-- Fixed a compatibility issue that could stop websites from loading.
-- Improved JavaScript rules on websites with stricter security settings. Failed changes now keep the original data.
-- Fixed URL matching when letter case matters, and filtering by GraphQL operation name.
-- Fixed response formats, progress, cancelled requests, timeouts and delays in API rules.
+- Added a privacy policy and clearer information when importing rules or subscribing to sources.
+- Removed redundant permissions while preserving automatic rules and background subscription updates.
+- Fixed an unnecessary resource download after the extension wakes up.
+- Made the extension version visible in the popup and dashboard.
+- Kept the existing interception engine, without a debugger permission or debugging banner.
 
-[Full changelog](https://github.com/thomrnowtea/sfv-interceptor/compare/v1.3.1...v1.3.2)
+[Full changelog](https://github.com/thomrnowtea/sfv-interceptor/compare/v1.3.2...v1.3.3)
 
-Download **sfv-interceptor-v1.3.2.zip** below. See the [installation instructions](https://github.com/thomrnowtea/sfv-interceptor#installation).
+Download **sfv-interceptor-v1.3.3.zip** below. See the [installation instructions](https://github.com/thomrnowtea/sfv-interceptor#installation).
 
 ### Updating
 

@@ -50,6 +50,8 @@ The extension requests access to all websites so it can apply your rules. You ca
 
 Rules that contain JavaScript can read or change the pages they run on. Only use rules from sources you trust.
 
+See the [privacy policy](PRIVACY.md) for local storage, network connections, rule code, and your data controls.
+
 ## Development
 
 The extension loads directly from this repository; it has no build step. For Node-based checks, packaging, and release instructions, see [development](docs/development.md) and [release packaging](docs/releases.md).

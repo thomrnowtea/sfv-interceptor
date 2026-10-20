@@ -30,7 +30,7 @@ async function removeObsoleteRules(existing, desired) {
   }
 }
 
-export async function rebuildDNR() {
+export async function rebuildDNR(options) {
   const toAdd = dynamicRules(await getRules());
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
   try {
@@ -39,7 +39,7 @@ export async function rebuildDNR() {
       addRules:      toAdd,
     });
     console.log('[SFV-I SW] DNR:', toAdd.length, 'block rule(s)');
-    clearAssetCaches();
+    if (options?.preserveAssetCache !== true) clearAssetCaches();
   } catch (error) {
     // Even if applying additions fails, remove blockers belonging to deleted
     // rules so unsubscribed sources cannot keep blocking files.

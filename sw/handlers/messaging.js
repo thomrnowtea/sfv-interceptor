@@ -81,12 +81,15 @@ async function pushRulesToTabs() {
 
 let publishQueue = Promise.resolve();
 
-export function publishRulesChanged() {
+export function publishRulesChanged(options) {
+  // Source-sync callbacks pass a result object; only an explicit lifecycle
+  // option may preserve the original-resource cache.
+  const preserveAssetCache = options?.preserveAssetCache === true;
   invalidateExecutionSnapshot();
   const next = publishQueue.then(async () => {
     await executionRules();
     let applicationError = null;
-    try { await rebuildDNR(); }
+    try { await rebuildDNR({ preserveAssetCache }); }
     catch (error) { applicationError = error; }
     await chrome.storage.local.set({ sfvi_apply_error: applicationError?.message ?? '' });
     await pushRulesToTabs();

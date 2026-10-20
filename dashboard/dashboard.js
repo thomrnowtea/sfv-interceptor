@@ -9,6 +9,7 @@ import { downloadRules }                               from './ui/exports.js';
 import { icon }                                       from '../shared/icons.js';
 import { renderNav, initNav, updateSelectButtons, initSidebar, closeRuleBrowser } from './ui/nav.js';
 import { buildEditorHTML, bindEditorEvents, initRuleEditor }    from './ui/rule-editor.js';
+import { showAppVersion } from '../shared/app-version.js';
 
 // ── Coordination functions ────────────────────────────────────────────────────
 
@@ -116,6 +117,7 @@ initSources({ refresh, showSources });
 initImports({ refresh, subscribe: openSourceModal });
 initSidebar();
 initTheme();
+showAppVersion();
 
 // ── Global events ─────────────────────────────────────────────────────────────
 

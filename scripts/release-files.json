@@ -1,6 +1,7 @@
 [
   "manifest.json",
   "LICENSE",
+  "PRIVACY.md",
   "background.js",
   "content.js",
   "page-hook.js",
@@ -42,6 +43,7 @@
   "sandbox/sandbox.html",
   "sandbox/sandbox.js",
   "shared/converters.js",
+  "shared/app-version.js",
   "shared/dialogs.js",
   "shared/icons.js",
   "shared/rule-display.js",

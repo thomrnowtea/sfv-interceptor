@@ -24,6 +24,10 @@ See [quality checks](qa.md) for the available suites. `npm run check` validates 
 
 `SFVI_EXTENSION_ROOT` selects the extension directory for `test:interception`, including an extracted release ZIP. `SFVI_TEST_ARTIFACTS` selects its output directory and is also supported by the activity, toast and upgrade runners. Generated screenshots, diagnostics and profiles stay under ignored `.artifacts/` by default.
 
+## Chrome Web Store
+
+The submission materials are documented in [privacy and permissions](store-privacy.md) and [the store listing](store-listing.md). Read [user-code execution compatibility](store-compatibility.md) for the existing engine's execution inventory, proposed policy justification, and remaining review uncertainty. The active release retains the current MAIN/sandbox engine. Retired userScripts/debugger prototypes are excluded from development and delivery scope.
+
 ## Package and update
 
 ```sh
