@@ -6,16 +6,34 @@
 .vscode/
 .idea/
 AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Internal publication notes, artwork tooling, and local work
+.local/
+/docs/internal/
+/docs/store-listing.md
+/docs/store-privacy.md
+/docs/store-compatibility.md
+/scripts/readme-assets.mjs
+/scripts/readme-cover.mjs
+/scripts/readme-popup.mjs
+/scripts/store-assets.mjs
+/scripts/store-demo-rules.mjs
+/scripts/store-examples.mjs
 
 # Dependencies and generated verification/release files
 node_modules/
 test-results/
 playwright-report/
 .artifacts/
-/docs/test-audit.md
+/docs/*-audit.md
+/docs/*-report.md
 dist/
 coverage/
 *.log
+*.zip
+*.zip.sha256
 
 # Local rules, exports and browser profiles (keep shared fixtures under tests/)
 /rules/
@@ -31,6 +49,9 @@ coverage/
 .env.*
 !.env.example
 *.pem
+*.key
+*.p12
+*.pfx
 *.crx
 
 # OS metadata

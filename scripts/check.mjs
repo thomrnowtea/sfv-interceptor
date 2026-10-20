@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const skip = new Set(['.git', 'node_modules', '.claude', '.codex', '.artifacts', 'dist', 'test-results', 'playwright-report']);
+const skip = new Set(['.git', 'node_modules', '.claude', '.codex', '.agents', '.orca', '.local', '.artifacts', 'dist', 'test-results', 'playwright-report']);
 function filesIn(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
     if (skip.has(entry.name)) return [];

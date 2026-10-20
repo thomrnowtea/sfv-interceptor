@@ -24,10 +24,6 @@ See [quality checks](qa.md) for the available suites. `npm run check` validates 
 
 `SFVI_EXTENSION_ROOT` selects the extension directory for `test:interception`, including an extracted release ZIP. `SFVI_TEST_ARTIFACTS` selects its output directory and is also supported by the activity, toast and upgrade runners. Generated screenshots, diagnostics and profiles stay under ignored `.artifacts/` by default.
 
-## Chrome Web Store
-
-The submission materials are documented in [privacy and permissions](store-privacy.md) and [the store listing](store-listing.md). Read [user-code execution compatibility](store-compatibility.md) for the existing engine's execution inventory, proposed policy justification, and remaining review uncertainty. The active release retains the current MAIN/sandbox engine. Retired userScripts/debugger prototypes are excluded from development and delivery scope.
-
 ## Package and update
 
 ```sh
@@ -42,4 +38,4 @@ Packaging uses an explicit runtime-file allowlist and writes the ZIP and checksu
 
 `node scripts/vendor-terser.mjs` regenerates the checked-in minifier. Keep its license notices with the bundle. The Manrope WOFF2 comes from `@fontsource-variable/manrope`; update the font and SIL OFL license together.
 
-`npm run docs:images` regenerates the README cover and dashboard image. `npm run docs:popup` opens isolated Chromium with synthetic rules and a sample page for the native-popup screenshot. Commit the documentation images under `docs/assets/`; keep browser profiles and intermediate captures out of Git.
+The README uses the documentation images under `docs/assets/`. Keep screenshots free of personal rules, accounts, and browser profiles. Internal publication notes, artwork tooling, and local demo rules belong under ignored `.local/`; test results and disposable browser profiles belong under ignored `.artifacts/`.
