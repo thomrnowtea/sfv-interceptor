@@ -22,6 +22,8 @@ The popup distinguishes **enabled** from **applied on this page**. Enabled rules
 
 Session storage preserves the union across popup reopening and service worker reevaluation. Browser/extension restart clears it. No additional manifest permission is needed.
 
+The worker caches one immutable effective rule list and its fingerprint while configuration is unchanged. Local rule and source writes invalidate it before and after persistence, including failed writes; `storage.onChanged` and publication also invalidate it. This internal revision is independent of editable rule versions. Reads or hashes that overlap a change cannot populate the current cache, and returned execution snapshots retain their captured epoch across asynchronous work. Each activity report still validates the sender, document, active frame ancestry, cycle, enabled rule and pair. Worker restart begins with an empty cache and recomputes the same persisted fingerprint, preserving activity when the effective configuration is identical. User-code results and original resources do not use this cache.
+
 ## Cycle boundaries
 
 Top-level `webNavigation.onCommitted` starts a new activation. A handshake that reaches the active frame first creates the same activation; the subsequent commit reconciles it once. Reloading the same URL still has a different document identity. Frame navigation does not reset the parent's union. Same-document history/hash changes retain it. A canceled navigation that never commits retains the visible document's state. Removed and replaced tabs are forgotten.
@@ -39,6 +41,8 @@ API descriptors carry explicit `ruleId`, `pairId`, resource color, configuration
 ## Page asset timing
 
 `onBeforeNavigate` prepares matching HTML/JS/CSS rules, DNR blockers, and any required original source while the document request is in flight. `onCommitted` reuses the commit activity snapshot and starts injections without one activity transaction per asset. Static replacements skip downloading the original; when page policy permits, the replacement runs synchronously as an inserted inline script, with the existing Blob load path as a CSP fallback.
+
+Completed asset bodies and page-discovery results retain their LRU limits of 40 and 60 entries respectively. Concurrent callers share an unfinished download until it settles, independently of those limits. Clearing a cache invalidates its pending entries: existing callers may still finish, but their old completions cannot repopulate the cache or remove a newer download. Failed downloads remain retryable.
 
 Asset execution normalizes omitted `original`/`staticBody` fields to `null` and validates source and replacement values before insertion. Cached-source modifiers can return synchronous strings, promises or thenables; nullish results retain the original source. A script that starts and then throws is never retried through the Blob path.
 

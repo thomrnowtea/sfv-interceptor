@@ -3,13 +3,17 @@ import assert from 'node:assert/strict';
 import { installChrome, rule, extensionSender, jsonFetch, until } from './helpers/chrome.js';
 import { addSource, updateSource, deleteSource, restoreSourceAlarms, syncSource, SOURCE_ALARM_PREFIX } from '../sw/core/sources.js';
 import { getRules, saveRule, mergeRules } from '../sw/core/rules.js';
+import { invalidateExecutionSnapshot } from '../sw/core/activity.js';
 import { handleMessage, publishRulesChanged } from '../sw/handlers/messaging.js';
 import { rebuildDNR } from '../sw/handlers/dnr.js';
 import { selectAssetMatches } from '../sw/core/asset-matches.js';
 import { fileRuleId } from '../sw/core/file-rules.js';
 
 let fixture;
-beforeEach(() => { fixture = installChrome({ sfvi_rules: [rule()] }); });
+beforeEach(() => {
+  invalidateExecutionSnapshot();
+  fixture = installChrome({ sfvi_rules: [rule()] });
+});
 const config = (url = 'https://team.test/rules.json') => ({ name: 'Team', url, intervalMinutes: 15 });
 
 test('combined exports round-trip with local and multiple sources sharing publisher IDs', async () => {

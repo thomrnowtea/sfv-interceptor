@@ -7,8 +7,8 @@
 <p align="center">Mock API responses, replace JavaScript and CSS files, and customize web pages.</p>
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/sfv-interceptor/ecegpdejljnflaiibflhfofjmfnpponc"><img src="https://img.shields.io/badge/Chrome_Web_Store-Install-4285f4?style=for-the-badge&amp;logo=googlechrome&amp;logoColor=white" alt="Install from the Chrome Web Store"></a>
   <a href="https://github.com/thomrnowtea/sfv-interceptor/releases/latest"><img src="https://img.shields.io/badge/Download-ZIP-5b73ff?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="Download the latest extension ZIP"></a>
-  <img src="https://img.shields.io/badge/Chrome_Web_Store-In_review-939bb5?style=for-the-badge" alt="Chrome Web Store submission under review">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22d3ee?style=for-the-badge" alt="MIT license"></a>
 </p>
 
@@ -38,7 +38,13 @@
 
 ## Installation
 
-Download the ZIP while the Chrome Web Store submission is under review:
+### Chrome Web Store (recommended)
+
+Open [SFV Interceptor in the Chrome Web Store](https://chromewebstore.google.com/detail/sfv-interceptor/ecegpdejljnflaiibflhfofjmfnpponc) and click **Add to Chrome**. Chrome installs future updates automatically.
+
+### ZIP (alternative)
+
+Install manually from GitHub Releases:
 
 1. Open the [latest release](https://github.com/thomrnowtea/sfv-interceptor/releases/latest) and download **sfv-interceptor-vX.X.X.zip** under **Assets**.
 2. Extract it to a folder you will keep on your computer.

@@ -1,7 +1,8 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installChrome, rule, extensionSender } from './helpers/chrome.js';
-import { isExecutionSnapshotCurrent, pageExecution, recordApplied, tabActivity, commitPage, executionRules, initActivity } from '../sw/core/activity.js';
+import { saveRule } from '../sw/core/rules.js';
+import { isExecutionSnapshotCurrent, pageExecution, recordApplied, tabActivity, commitPage, executionRules, initActivity, invalidateExecutionSnapshot } from '../sw/core/activity.js';
 import { handleMessage, getApiRules, publishRulesChanged } from '../sw/handlers/messaging.js';
 
 let fixture;
@@ -11,6 +12,7 @@ function frames(tabId, documentId, children = []) {
   fixture.frames.set(tabId, [{ frameId: 0, parentFrameId: -1, documentId, documentLifecycle: 'active' }, ...children]);
 }
 beforeEach(() => {
+  invalidateExecutionSnapshot();
   fixture = installChrome({ sfvi_rules: [rule(), rule({ id: 'other' })] });
   frames(1, 'page-a'); frames(2, 'page-b');
 });
@@ -106,7 +108,7 @@ test('configuration changes clear state before publication and reject stale desc
   const { activity } = await pageExecution(1);
   const snapshot = await pageExecution(1);
   await recordApplied(report(activity), sender());
-  fixture.data.sfvi_rules[0].version = '2.0.0';
+  await saveRule(rule({ version: '2.0.0' }));
   const changed = await executionRules();
   assert.notEqual(changed.configRevision, activity.configRevision);
   assert.equal(isExecutionSnapshotCurrent(snapshot), false);

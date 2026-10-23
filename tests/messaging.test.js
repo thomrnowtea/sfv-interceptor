@@ -1,11 +1,15 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { installChrome, extensionSender, rule } from './helpers/chrome.js';
+import { invalidateExecutionSnapshot } from '../sw/core/activity.js';
 import { handleMessage, initMessaging, getApiRules } from '../sw/handlers/messaging.js';
 import { rebuildDNR } from '../sw/handlers/dnr.js';
 
 let fixture;
-beforeEach(() => { fixture = installChrome({ sfvi_rules: [rule()] }); });
+beforeEach(() => {
+  invalidateExecutionSnapshot();
+  fixture = installChrome({ sfvi_rules: [rule()] });
+});
 
 test('content scripts cannot read private source metadata or invoke source mutations', async () => {
   const sender = { id: 'test-extension', url: 'https://page.test/', tab: { id: 1 } };

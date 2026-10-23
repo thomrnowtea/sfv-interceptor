@@ -1,6 +1,6 @@
 # Releases
 
-Users download the named extension ZIP from [GitHub Releases](https://github.com/thomrnowtea/sfv-interceptor/releases). They extract it and use Chrome's **Load unpacked** action. The archive contains `manifest.json` at its root, without an extra enclosing directory. See [Chrome's installation instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
+Users can install from the [Chrome Web Store](https://chromewebstore.google.com/detail/sfv-interceptor/ecegpdejljnflaiibflhfofjmfnpponc) with automatic updates, or download the named extension ZIP from [GitHub Releases](https://github.com/thomrnowtea/sfv-interceptor/releases) for manual installation. For the ZIP, they extract it and use Chrome's **Load unpacked** action. The archive contains `manifest.json` at its root, without an extra enclosing directory. See [Chrome's installation instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
 
 ## Package locally
 
@@ -15,9 +15,9 @@ npx playwright install chromium
 npm run test:release
 ```
 
-The current version produces `dist/sfv-interceptor-v1.3.3.zip` and `dist/sfv-interceptor-v1.3.3.zip.sha256`. The version comes from `manifest.json` and must match `package.json`. `dist/` is ignored by Git. Packaging does not compile, minify, or rewrite the extension's code or manifest.
+The current version produces `dist/sfv-interceptor-v1.3.4.zip` and `dist/sfv-interceptor-v1.3.4.zip.sha256`. The version comes from `manifest.json` and must match `package.json`. `dist/` is ignored by Git. Packaging does not compile, minify, or rewrite the extension's code or manifest.
 
-`npm run package -- --tag v1.3.3` additionally checks the expected release tag. Versions use Chrome-compatible numeric `X.Y.Z` values; tags use `vX.Y.Z`. For a future release, update the manifest and run `npm version <version> --no-git-tag-version` to update the package and lockfile before packaging. Update [the release notes](release-body.md) with a short changelog and the new download/compare links.
+`npm run package -- --tag v1.3.4` additionally checks the expected release tag. Versions use Chrome-compatible numeric `X.Y.Z` values; tags use `vX.Y.Z`. For a future release, update the manifest and run `npm version <version> --no-git-tag-version` to update the package and lockfile before packaging. Update [the release notes](release-body.md) with a short changelog and the new download/compare links.
 
 ## Archive contents
 
@@ -46,8 +46,8 @@ The extracted-archive smoke check verifies checksum, exact allowlisted contents 
 Commit and push the reviewed source changes, new runtime assets, packaging files and [.github/workflows/release.yml](../.github/workflows/release.yml). Tag that commit only after its versions agree and checks pass:
 
 ```sh
-git tag -a v1.3.3 -m "SFV Interceptor 1.3.3"
-git push origin v1.3.3
+git tag -a v1.3.4 -m "v1.3.4"
+git push origin v1.3.4
 ```
 
 The tag push runs Node tests, syntax checks, packaging and the extracted-ZIP browser check. On success, the workflow attaches the versioned ZIP and checksum to a GitHub Release. [Tag filters](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#using-filters-to-target-specific-branches-or-tags-for-push-events) select releases; [GitHub CLI](https://cli.github.com/manual/gh_release_create) publishes the curated [changelog and update instructions](release-body.md). Actions are pinned to full commit SHAs. The built-in GitHub token needs `contents: write`; no personal token is required.
@@ -55,6 +55,12 @@ The tag push runs Node tests, syntax checks, packaging and the extracted-ZIP bro
 **Actions → Release → Run workflow** builds and uploads a downloadable preview artifact without publishing a release. Only a pushed version tag publishes. GitHub's automatic source archives remain separate from the named extension ZIP. Existing releases are not overwritten by this workflow; publish fixes under a new version/tag.
 
 Release automation also runs `npm run test:interception` against the extracted ZIP before publishing. Before an update, run `npm run test:upgrade -- path/to/previous-release.zip` to verify that replacing files in the same folder preserves stored rules, sources and preferences in an isolated browser profile.
+
+## Submit a Chrome Web Store update
+
+Use the same verified extension ZIP in the existing item's **Package → Upload new package** action, then **Submit for review**. Each package version must be higher than the previous version. Update listing or privacy fields when their information changes. See [Chrome's update guide](https://developer.chrome.com/docs/webstore/update).
+
+Chrome Web Store installations receive the update after it is approved and published. A GitHub release alone does not update Store installations or manually loaded ZIP installations.
 
 ## Updating an installed ZIP release
 

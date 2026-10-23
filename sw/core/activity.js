@@ -1,9 +1,12 @@
 import { getRules } from './rules.js';
+import { ruleStorageRevision } from './storage.js';
 import { setIcon } from '../handlers/icons.js';
 
 const KEY = 'sfvi_activity';
 let queue = Promise.resolve();
 let configEpoch = 0;
+let observedRuleRevision = ruleStorageRevision();
+let configuration = null;
 let pageEpochCounter = 0;
 const committedPages = new Map();
 const pageEpochs = new Map();
@@ -15,7 +18,7 @@ export function getCommittedPage(tabId, documentId) {
 }
 
 export function isExecutionSnapshotCurrent(snapshot) {
-  if (!snapshot || snapshot.configEpoch !== configEpoch) return false;
+  if (!snapshot || snapshot.configEpoch !== executionConfigEpoch()) return false;
   if (!snapshot.activity) return true;
   const current = pageEpochs.get(Number(snapshot.tabId));
   return current ? current.epoch === snapshot.pageEpoch && current.cycleId === snapshot.activity.cycleId : false;
@@ -34,9 +37,15 @@ function pageEpoch(tabId, tab) {
 
 export function invalidateExecutionSnapshot() {
   configEpoch++;
+  configuration = null;
 }
 
 export function executionConfigEpoch() {
+  const revision = ruleStorageRevision();
+  if (revision !== observedRuleRevision) {
+    observedRuleRevision = revision;
+    invalidateExecutionSnapshot();
+  }
   return configEpoch;
 }
 
@@ -46,12 +55,42 @@ async function fingerprint(rules) {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function freezeConfiguration(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeConfiguration(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+async function currentConfiguration() {
+  for (;;) {
+    const epoch = executionConfigEpoch();
+    if (!configuration) {
+      const pending = getRules().then(async rules => ({ rules: freezeConfiguration(rules), hash: await fingerprint(rules), epoch }));
+      configuration = pending;
+      pending.catch(() => { if (configuration === pending) configuration = null; });
+    }
+    try {
+      const snapshot = await configuration;
+      if (snapshot.epoch === executionConfigEpoch()) return snapshot;
+    } catch (error) {
+      if (epoch === executionConfigEpoch()) throw error;
+    }
+  }
+}
+
 // Reads, unions, and cycle changes share this queue, including after worker wakeup.
 function transact(operation) {
   const next = queue.then(async () => {
-    const rules = await getRules();
-    const hash = await fingerprint(rules);
-    const stored = (await chrome.storage.session.get(KEY))[KEY];
+    let config = await currentConfiguration();
+    let stored = (await chrome.storage.session.get(KEY))[KEY];
+    // Session IPC can overlap a write too; never bind old rules to a new epoch.
+    while (config.epoch !== executionConfigEpoch()) {
+      config = await currentConfiguration();
+      stored = (await chrome.storage.session.get(KEY))[KEY];
+    }
+    const { rules, hash } = config;
     const state = stored || { fingerprint: hash, revision: crypto.randomUUID(), generation: 1, tabs: {} };
     let dirty = !stored;
     const changed = new Map();
@@ -60,7 +99,9 @@ function transact(operation) {
       changed.set(Number(tabId), reset || changed.get(Number(tabId)) || false);
     };
     if (state.fingerprint !== hash) {
+      // The content hash persists across worker wakeups; internal epochs do not.
       configEpoch++;
+      config.epoch = configEpoch;
       state.fingerprint = hash;
       state.revision = crypto.randomUUID();
       state.generation = (state.generation || 1) + 1;
@@ -70,7 +111,7 @@ function transact(operation) {
         touch(tabId, true);
       }
     }
-    const result = await operation(state, rules, touch);
+    const result = await operation(state, rules, touch, config.epoch);
     if (dirty) await chrome.storage.session.set({ [KEY]: state });
     for (const [tabId, reset] of changed) {
       setIcon(tabId, Boolean(state.tabs[tabId]?.appliedRuleIds.length));
@@ -121,11 +162,11 @@ function envelope(state, tab) {
 }
 
 export function executionRules() {
-  return transact((state, rules) => ({ rules, configRevision: state.revision, configGeneration: state.generation, configEpoch }));
+  return transact((state, rules, _touch, configEpoch) => ({ rules, configRevision: state.revision, configGeneration: state.generation, configEpoch }));
 }
 
 export function pageExecution(tabId, frameId = 0, documentId) {
-  return transact(async (state, rules, touch) => {
+  return transact(async (state, rules, touch, configEpoch) => {
     // A document ID from a content script or webNavigation event identifies
     // the document before getAllFrames exposes it as active. Bind directly so
     // document_start interception never waits for that browser bookkeeping.
@@ -181,7 +222,7 @@ export function recordApplied(message, sender) {
 
 export function commitPage(details) {
   if (details.frameId !== 0) return Promise.resolve();
-  const committed = transact(async (state, rules, touch) => {
+  const committed = transact(async (state, rules, touch, configEpoch) => {
     const frames = details.documentId ? null : await activeFrames(details.tabId);
     const tab = details.documentId
       ? bindDocument(state, details.tabId, details.documentId, touch)

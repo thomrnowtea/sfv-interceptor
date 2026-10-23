@@ -5,10 +5,13 @@ import { getRules, toggleRule, saveRule, deleteRule } from '../sw/core/rules.js'
 import { addSource, syncSource, getSources, deleteSource } from '../sw/core/sources.js';
 import { remoteRuleId, materializeSourceRules, portableRule } from '../shared/rule-schema.js';
 import { getApiRules, handleMessage } from '../sw/handlers/messaging.js';
-import { pageExecution, recordApplied, tabActivity, isExecutionSnapshotCurrent } from '../sw/core/activity.js';
+import { pageExecution, recordApplied, tabActivity, isExecutionSnapshotCurrent, invalidateExecutionSnapshot } from '../sw/core/activity.js';
 
 let fixture;
-beforeEach(() => { fixture = installChrome({ sfvi_rules: [rule()] }); });
+beforeEach(() => {
+  invalidateExecutionSnapshot();
+  fixture = installChrome({ sfvi_rules: [rule()] });
+});
 
 async function subscribe(rules = [rule()], url = 'https://team.test/shared') {
   jsonFetch(rules);
